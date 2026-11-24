@@ -78,18 +78,6 @@ export async function POST(
       },
     });
 
-    // Notify the other party (in-app; delivered on their next poll).
-    const recipientId = swap.buyerId === user.id ? swap.cookId : swap.buyerId;
-    await prisma.notification.create({
-      data: {
-        userId: recipientId,
-        swapId,
-        type: "CHAT_MESSAGE",
-        title: `💬 ${user.name}`,
-        body: text.trim().slice(0, 80),
-      },
-    });
-
     return success(
       {
         id: message.id,

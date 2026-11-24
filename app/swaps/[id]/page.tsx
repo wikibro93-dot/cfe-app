@@ -23,20 +23,19 @@ import toast from "react-hot-toast";
 
 export default function SwapDetailsPage() {
   const params = useParams();
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
   const router = useRouter();
   const swapId = params.id as string;
 
   const { data: swap, isLoading } = useQuery({
     queryKey: ["swap", swapId],
     queryFn: async () => {
-      const res = await fetch(`/api/swaps/${swapId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/swaps/${swapId}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Failed to load swap");
       return res.json();
     },
-    enabled: !!swapId && !!token,
+    enabled: !!swapId && !!user,
   });
 
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -50,8 +49,8 @@ export default function SwapDetailsPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "same-origin",
         body: JSON.stringify({ action, ...data }),
       });
 
@@ -87,7 +86,7 @@ export default function SwapDetailsPage() {
           <div className="text-center">
             <X size={48} className="text-stone-300 mx-auto mb-4" />
             <h3 className="font-bold text-stone-700 mb-2">Swap not found</h3>
-            <p className="text-sm text-stone-500">This swap may have been deleted or you don't have access to it.</p>
+            <p className="text-sm text-stone-500">This swap may have been deleted or you don&apos;t have access to it.</p>
             <Button className="mt-4" onClick={() => router.push("/swaps")}>
               Back to Swaps
             </Button>

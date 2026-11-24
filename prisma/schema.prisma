@@ -108,6 +108,13 @@ model Swap {
   pickedUpAt   DateTime?
   cancelledAt  DateTime?
   cancelReason String?
+  // Latest buyer location, updated by POST /api/swaps/[id]/location.
+  // Socket.IO live push was removed, so the cook polls GET on this route
+  // instead (see app/swaps/[id]/track/page.tsx). Nullable — no location
+  // has been shared yet until the buyer broadcasts.
+  buyerLat       Float?
+  buyerLng       Float?
+  buyerLocationAt DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

@@ -1,13 +1,20 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthUser, unauthorized, forbidden, success, badRequest, serverError } from "@/lib/middleware";
-import { emitToUser } from "@/lib/socket";
+import { rateLimit } from "@/lib/ratelimit";
+
+// NOTE: live Socket.IO push was removed (see lib/socket.ts). The buyer
+// location is now delivered to the cook via the in-app notification below;
+// the cook sees it by opening notifications or the track page (REST).
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const rl = await rateLimit(req, "api-write");
+    if (!rl.success) return rl.response!;
+
     const user = await getAuthUser(req);
     if (!user) return unauthorized();
 
@@ -44,18 +51,6 @@ export async function POST(
       return badRequest("Location tracking is only available for confirmed swaps");
     }
 
-    // Broadcast location to cook via WebSocket
-    emitToUser(swap.cookId, "buyer:location", {
-      swapId: swap.id,
-      dishId: swap.dishId,
-      buyerId: user.id,
-      buyerName: user.name,
-      buyerPhone: user.phone,
-      location: { lat, lng },
-      timestamp: new Date().toISOString(),
-      status: swap.status,
-    });
-
     // Create notification for cook
     await prisma.notification.create({
       data: {
@@ -74,7 +69,7 @@ export async function POST(
     });
 
     return success({
-      message: "Location broadcasted to cook",
+      message: "Location shared with cook",
       location: { lat, lng },
       timestamp: new Date().toISOString(),
     });

@@ -1,74 +1,56 @@
-// Edge-safe JWT implementation using Web Crypto API
-// This file can be imported by middleware.ts (Edge runtime)
-
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-change-in-production";
+import jwt from "jsonwebtoken";
 
 export interface JWTPayload {
   userId: string;
   phone: string;
   role: string;
+  iat?: number;
+  exp?: number;
 }
 
-// Helper function to encode base64url
-function base64UrlEncode(data: string): string {
-  return btoa(data)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
+/**
+ * Token lifetime: 7 days (the maximum we allow). A shorter expiry with
+ * refresh tokens is a follow-up; 7 days is a deliberate, bounded choice.
+ */
+export const TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
-// Helper function to decode base64url
-function base64UrlDecode(str: string): string {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4) {
-    str += '=';
+/**
+ * Returns the signing secret, or throws. Auth must fail loudly when the
+ * secret is missing — never fall back to a default or an unsigned token.
+ */
+function getSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      "JWT_SECRET is not set (or is shorter than 32 characters). " +
+        "Generate one with `openssl rand -base64 32` and set it in the environment."
+    );
   }
-  return atob(str);
+  return secret;
 }
 
-// Simple JWT verification (for development/testing)
-// In production, you should use a proper JWT library or verify signature
+/** Sign a token with HMAC-SHA256. Throws if JWT_SECRET is not configured. */
+export function signToken(payload: JWTPayload): string {
+  return jwt.sign(
+    { userId: payload.userId, phone: payload.phone, role: payload.role },
+    getSecret(),
+    { algorithm: "HS256", expiresIn: TOKEN_MAX_AGE_SECONDS }
+  );
+}
+
+/**
+ * Verify a token: checks the HMAC signature AND the expiry. Returns null
+ * for any invalid, expired, or forged token. Never returns a payload from
+ * an unverified token.
+ */
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return null;
-    }
-
-    const payload = parts[1];
-    const decoded = base64UrlDecode(payload);
-    const parsed = JSON.parse(decoded) as JWTPayload;
-
-    // Basic validation
-    if (!parsed.userId || !parsed.phone || !parsed.role) {
-      return null;
-    }
-
-    return parsed;
+    const decoded = jwt.verify(token, getSecret(), {
+      algorithms: ["HS256"],
+    }) as JWTPayload;
+    if (!decoded.userId || !decoded.phone || !decoded.role) return null;
+    return decoded;
   } catch {
     return null;
   }
-}
-
-// Simple JWT signing (for development/testing)
-// In production, you should use a proper JWT library with proper signature
-export function signToken(payload: JWTPayload): string {
-  const header = {
-    alg: 'HS256',
-    typ: 'JWT'
-  };
-
-  const now = Math.floor(Date.now() / 1000);
-  const payloadWithExp = {
-    ...payload,
-    iat: now,
-    exp: now + (30 * 24 * 60 * 60) // 30 days
-  };
-
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payloadWithExp));
-
-  // For development, we'll skip the signature verification
-  // In production, you should use a proper JWT library
-  return `${encodedHeader}.${encodedPayload}.signature`;
 }

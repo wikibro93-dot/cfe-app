@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Community Food Exchange (CFE)
 
-## Getting Started
+Share homemade dishes with neighbours. A cook posts a dish, nearby users
+browse a feed or a map, request it, and pick it up — paying with credits,
+a direct swap, or for free. New users start with 10 credits; cooks earn
+credits when a dish is picked up.
 
-First, run the development server:
+> **Security status (branch `fix/critical-security`, not yet merged):** the
+> original code had unsigned JWTs, a mock OTP, passwordless login, fake
+> Stripe credit purchases and a committed database credential. Those are
+> fixed on this branch — see the PR description. Do **not** deploy `main`
+> to real users until that PR is merged and the checklist below is done.
+
+## Stack
+
+Next.js 16 / React 19 / TypeScript, Tailwind 4, Prisma 7 + Neon Postgres,
+Upstash Redis (rate limiting), Leaflet maps, Cloudinary uploads, Jest.
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env   # then fill in the real values (never commit .env)
+npx prisma generate
+npx prisma db push     # applies the schema; there are no migrations yet
+npm run dev            # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env.example` and set every value. Required:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | What it is |
+|---|---|
+| `DATABASE_URL` | Postgres connection string (Neon). **Never commit a real one.** |
+| `JWT_SECRET` | Random secret, min 32 chars: `openssl rand -base64 32`. Auth fails loudly without it. |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_PHONE_NUMBER` | SMS one-time codes. Login returns 503 until these are set. |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` / `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` | Dish photo uploads (unsigned preset `cfe_dishes`). |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Rate limiting. Required in production; without them the app falls back to in-memory limits that reset on every cold start. |
+| `EXCHANGE_RATES_API_KEY` | Currency conversion (exchangeratesapi.io). |
+| `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_APP_NAME` | Public URL and display name. |
 
-## Learn More
+## Before going live
 
-To learn more about Next.js, take a look at the following resources:
+1. **Rotate the Neon database credential.** A real connection string was
+   committed in `prisma.config.ts` and in `.env.example` / `.history/` on
+   `main`. Rotate it in Neon, delete the old credential, and set the new
+   `DATABASE_URL` in Vercel. (Deleting the files does not remove the secret
+   from git history.)
+2. Set `JWT_SECRET`, Twilio and Upstash vars in Vercel.
+3. Run `npx prisma generate && npx prisma db push` against the live database
+   (this applies the new `OTP.attempts` column and the indexes).
+4. Create the Cloudinary unsigned upload preset `cfe_dishes`.
+5. Set the first admin by SQL: `UPDATE "User" SET role = ADMIN WHERE phone = +YOUR_PHONE;`
+6. `npm run build` and `npm run test:ci` must pass.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## What is deliberately disabled
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Credit purchase is disabled.** There is no Stripe integration; the old
+  code minted credits from a client-supplied amount. `POST /api/credits`
+  with `type: "PURCHASE"` returns 503. Credits are earned (welcome bonus,
+  cooking) and spent/refunded through the swap ledger only. To sell credits,
+  integrate Stripe PaymentIntents with server-side verification first.
+- **Live push is disabled.** Socket.IO was dead code (no server on Vercel
+  serverless). Chat and notifications use REST polling instead. `lib/socket.ts`
+  now only holds shared chat types.
+- **Passwordless login is removed.** Sign-in is SMS one-time code only
+  (`/api/auth/send-otp` → `/api/auth/verify-otp`). The old
+  `POST /api/auth/login` returns 410 Gone.
 
-## Deploy on Vercel
+## Auth model
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- JWT: HMAC-SHA256 via `jsonwebtoken`, 7-day expiry, signature + expiry
+  verified on every request. The token is set as an `httpOnly`, `Secure` (in
+  production), `SameSite=Lax` cookie — it is never stored in localStorage
+  and never returned in a JSON body.
+- OTP: crypto-secure 6-digit code, SHA-256 hash stored (never the plain
+  code), 10-minute expiry, single-use, invalidated after 5 wrong attempts.
+- Rate limits (Upstash, sliding window): send-otp 3/min, verify-otp 5/min,
+  writes 30/min, search 60/min, general API 120/min.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Tests
+
+```bash
+npm test        # Jest
+npm run test:ci # Jest in CI mode with coverage
+```

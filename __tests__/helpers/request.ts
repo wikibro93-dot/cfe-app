@@ -46,7 +46,10 @@ export function makeReq(path: string, opts: ReqOpts = {}): NextRequest {
   } else if (opts.token) {
     headers.cookie = `cfe_token=${opts.token}`;
   }
-  const init: Record<string, unknown> = {
+  // `any` on purpose: Next's RequestInit type is not assignable from the
+  // DOM lib's RequestInit, and the values here are exactly what
+  // NextRequest accepts at runtime.
+  const init: any = {
     method: opts.method ?? "GET",
     headers,
   };
@@ -55,7 +58,7 @@ export function makeReq(path: string, opts: ReqOpts = {}): NextRequest {
     headers["content-type"] = "application/json";
   }
   if (opts.rawBody !== undefined) init.body = opts.rawBody;
-  return new NextRequest(`http://localhost:3000${path}`, init as RequestInit);
+  return new NextRequest(`http://localhost:3000${path}`, init);
 }
 
 /** Read a route handler's JSON response body. */

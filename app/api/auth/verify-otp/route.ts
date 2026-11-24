@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { verifyOTP, signToken } from "@/lib/auth";
 import { badRequest, success, serverError, setAuthCookie } from "@/lib/middleware";
 import { rateLimit } from "@/lib/ratelimit";
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Create the user and the welcome-bonus ledger entry atomically.
-      user = await prisma.$transaction(async (tx) => {
+      user = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const created = await tx.user.create({
           data: {
             phone,

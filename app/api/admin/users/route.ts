@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getAuthUser, unauthorized, forbidden, success, serverError, badRequest } from "@/lib/middleware";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -97,7 +98,7 @@ export async function PATCH(req: NextRequest) {
         if (!Number.isFinite(delta)) return badRequest("Invalid credit amount");
         // Admin grants are ledgered (the old code changed the balance with
         // no record) and applied atomically with the ledger entry.
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
           await tx.user.update({
             where: { id: userId },
             data: { credits: { increment: delta } },

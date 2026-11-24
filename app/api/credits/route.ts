@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getAuthUser, unauthorized, success, serverError, badRequest } from "@/lib/middleware";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
       // only decrement when the balance is still sufficient. The conditional
       // updateMany is the guard — if it touches 0 rows, a concurrent
       // request already spent the balance and the donation is rejected.
-      const fresh = await prisma.$transaction(async (tx) => {
+      const fresh = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const current = await tx.user.findUnique({
           where: { id: user.id },
           select: { credits: true, badges: true },

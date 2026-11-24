@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getAuthUser, unauthorized, success, serverError, badRequest } from "@/lib/middleware";
 import { rateLimit } from "@/lib/ratelimit";
 
@@ -114,7 +115,7 @@ export async function POST(req: NextRequest) {
     // everything back, so credits can never be deducted without a swap.
     let swap;
     try {
-      swap = await prisma.$transaction(async (tx) => {
+      swap = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         if (type === "CREDITS" && creditAmount > 0) {
           const fresh = await tx.user.findUnique({
             where: { id: user.id },

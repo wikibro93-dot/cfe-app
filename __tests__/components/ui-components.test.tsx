@@ -325,6 +325,8 @@ describe("AdvancedSearch", () => {
 
   it("shows the result count when given", () => {
     render(<AdvancedSearch filters={baseFilters} onChange={jest.fn()} resultCount={7} />);
+    // The count is rendered in the filter panel footer, so open the panel first.
+    fireEvent.click(screen.getByText("Filters"));
     expect(screen.getByText("7 results")).toBeInTheDocument();
   });
 
@@ -352,9 +354,9 @@ describe("AdvancedSearch", () => {
   it("opens the filters panel and shows categories", () => {
     render(<AdvancedSearch filters={baseFilters} onChange={jest.fn()} />);
     fireEvent.click(screen.getByText("Filters"));
-    // Chips show only the first word of the category label.
-    expect(screen.getByText("Main")).toBeInTheDocument();
-    expect(screen.getByText("Dessert")).toBeInTheDocument();
+    // Chips render "emoji + first word of the label" (e.g. "🍛 Main"), so match by regex.
+    expect(screen.getByText(/Main/)).toBeInTheDocument();
+    expect(screen.getByText(/Dessert/)).toBeInTheDocument();
     expect(screen.getByText("Sort By")).toBeInTheDocument();
     expect(screen.getByText(/Radius:/)).toBeInTheDocument();
   });
@@ -362,7 +364,7 @@ describe("AdvancedSearch", () => {
   it("changes the category when a chip is clicked", () => {
     const onChange = jest.fn();
     render(<AdvancedSearch filters={baseFilters} onChange={onChange} />);
-    fireEvent.click(screen.getByText("Dessert"));
+    fireEvent.click(screen.getByText(/Dessert/));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ category: "DESSERT" }));
   });
 

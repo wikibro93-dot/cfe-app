@@ -360,7 +360,8 @@ describe("lib/middleware", () => {
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("cfe_token=tok123");
     expect(setCookie).toContain("HttpOnly");
-    expect(setCookie).toContain("SameSite=Lax");
+    // NextResponse serializes sameSite verbatim ("lax"), so match case-insensitively.
+    expect(setCookie).toMatch(/SameSite=lax/i);
     const cleared = clearAuthCookie(NextResponse.json({}));
     expect(cleared.headers.get("set-cookie") ?? "").toMatch(/Max-Age=0/);
   });

@@ -6,18 +6,17 @@ import { Header } from "@/components/layout/Header";
 import { Users, Utensils, ArrowLeftRight, TrendingUp, Star, Shield } from "lucide-react";
 
 export default function AdminPage() {
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
 
   const { data, isLoading } = useQuery({
     queryKey: ["adminStats"],
     queryFn: async () => {
-      const res = await fetch("/api/admin/stats", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch("/api/admin/stats", { credentials: "same-origin" });
       if (!res.ok) throw new Error("Forbidden");
       return res.json();
     },
-    enabled: !!token && (user?.role === "ADMIN" || user?.role === "MODERATOR"),
+    enabled: !!user && (user?.role === "ADMIN" || user?.role === "MODERATOR"),
   });
 
   if (!user || !["ADMIN", "MODERATOR"].includes(user.role)) {

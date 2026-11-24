@@ -22,7 +22,7 @@ const NavigateMap = dynamic(() => import("@/app/swaps/[id]/navigate/NavigateMap"
 });
 
 export default function NavigatePage() {
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
   const { theme } = useTheme();
   const router = useRouter();
   const params = useParams();
@@ -41,20 +41,19 @@ export default function NavigatePage() {
   const { data: swapData, isLoading } = useQuery({
     queryKey: ["swap", swapId],
     queryFn: async () => {
-      const res = await fetch(`/api/swaps/${swapId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/swaps/${swapId}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Failed to load swap");
       return res.json();
     },
-    enabled: !!token && !!swapId,
+    enabled: !!user && !!swapId,
   });
 
   const swap = swapData;
 
   // Calculate distance using Haversine formula
   const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3; // Earth radius in meters
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
     const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -105,7 +104,7 @@ export default function NavigatePage() {
         // Check arrival (30 meters threshold)
         if (dist < 30 && !hasArrived) {
           setHasArrived(true);
-          toast.success("🎉 You've arrived!", {
+          toast.success("🎉 You have arrived!", {
             duration: 5000,
             style: {
               background: "#14532d",
@@ -130,7 +129,8 @@ export default function NavigatePage() {
     };
   }, [swap, hasArrived]);
 
-  // Broadcast location to cook every 4 seconds
+  // Broadcast location to cook every 4 seconds (REST POST — the cook polls
+  // GET /api/swaps/[id]/location; Socket.IO live push was removed).
   useEffect(() => {
     if (!userLocation || !swap || swap.status !== "CONFIRMED") return;
 
@@ -140,8 +140,8 @@ export default function NavigatePage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
+          credentials: "same-origin",
           body: JSON.stringify({
             lat: userLocation[0],
             lng: userLocation[1],
@@ -163,7 +163,7 @@ export default function NavigatePage() {
       }
       setIsBroadcasting(false);
     };
-  }, [userLocation, swap, swapId, token]);
+  }, [userLocation, swap, swapId]);
 
   // Handle navigate to Google Maps
   const handleNavigate = () => {
@@ -187,8 +187,8 @@ export default function NavigatePage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "same-origin",
         body: JSON.stringify({ action: "pickup" }),
       });
 

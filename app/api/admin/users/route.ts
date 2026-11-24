@@ -1,9 +1,15 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthUser, unauthorized, forbidden, success, serverError, badRequest } from "@/lib/middleware";
+import { rateLimit } from "@/lib/ratelimit";
+
+const ROLES = ["COOK", "BUYER", "MODERATOR", "ADMIN"] as const;
 
 export async function GET(req: NextRequest) {
   try {
+    const rl = await rateLimit(req, "api-general");
+    if (!rl.success) return rl.response!;
+
     const user = await getAuthUser(req);
     if (!user) return unauthorized();
     if (!["ADMIN", "MODERATOR"].includes(user.role)) return forbidden();
@@ -11,7 +17,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search");
     const role = searchParams.get("role");
-    const page = parseInt(searchParams.get("page") || "1");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
     const limit = 20;
     const skip = (page - 1) * limit;
 
@@ -48,6 +54,9 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
+    const rl = await rateLimit(req, "api-write");
+    if (!rl.success) return rl.response!;
+
     const authUser = await getAuthUser(req);
     if (!authUser) return unauthorized();
     if (authUser.role !== "ADMIN") return forbidden();
@@ -55,19 +64,57 @@ export async function PATCH(req: NextRequest) {
     const { userId, action, value } = await req.json();
     if (!userId || !action) return badRequest("userId and action required");
 
+    const target = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, credits: true },
+    });
+    if (!target) return badRequest("User not found");
+
     switch (action) {
-      case "setRole":
+      case "setRole": {
+        if (!(ROLES as readonly string[]).includes(value)) {
+          return badRequest("Invalid role");
+        }
+        // An admin cannot demote themselves out of ADMIN.
+        if (userId === authUser.id && value !== "ADMIN") {
+          return badRequest("You cannot change your own admin role");
+        }
+        // Never remove the last admin.
+        if (value !== "ADMIN" && target.role === "ADMIN") {
+          const adminCount = await prisma.user.count({ where: { role: "ADMIN" } });
+          if (adminCount <= 1) {
+            return badRequest("Cannot remove the last admin");
+          }
+        }
         await prisma.user.update({ where: { id: userId }, data: { role: value } });
         break;
+      }
       case "verifyCook":
         await prisma.user.update({ where: { id: userId }, data: { isVerifiedCook: true } });
         break;
-      case "addCredits":
-        await prisma.user.update({
-          where: { id: userId },
-          data: { credits: { increment: parseFloat(value) } },
+      case "addCredits": {
+        const delta = parseFloat(value);
+        if (!Number.isFinite(delta)) return badRequest("Invalid credit amount");
+        // Admin grants are ledgered (the old code changed the balance with
+        // no record) and applied atomically with the ledger entry.
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: userId },
+            data: { credits: { increment: delta } },
+          });
+          await tx.creditTransaction.create({
+            data: {
+              userId,
+              amount: delta,
+              type: "BONUS",
+              description: "Admin credit adjustment",
+              balanceBefore: target.credits,
+              balanceAfter: target.credits + delta,
+            },
+          });
         });
         break;
+      }
       default:
         return badRequest("Invalid action");
     }

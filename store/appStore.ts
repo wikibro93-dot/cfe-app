@@ -25,7 +25,9 @@ interface User {
 
 interface AppState {
   user: User | null;
-  token: string | null;
+  // NOTE: there is deliberately NO token field here anymore. The auth token
+  // lives in an httpOnly cookie (see lib/middleware.ts) and is never stored
+  // in localStorage, where any script could read it.
   language: Language;
   currency: CurrencyCode;
   userLocation: { lat: number; lng: number } | null;
@@ -33,7 +35,6 @@ interface AppState {
   notificationCount: number;
 
   setUser: (user: User | null) => void;
-  setToken: (token: string | null) => void;
   setLanguage: (lang: Language) => void;
   setCurrency: (currency: CurrencyCode) => void;
   setUserLocation: (loc: { lat: number; lng: number } | null) => void;
@@ -47,7 +48,6 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       user: null,
-      token: null,
       language: "en",
       currency: "USD",
       userLocation: null,
@@ -55,7 +55,6 @@ export const useAppStore = create<AppState>()(
       notificationCount: 0,
 
       setUser: (user) => set({ user }),
-      setToken: (token) => set({ token }),
       setLanguage: (language) => set({ language }),
       setCurrency: (currency) => set({ currency }),
       setUserLocation: (userLocation) => set({ userLocation }),
@@ -65,13 +64,16 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           user: state.user ? { ...state.user, credits } : null,
         })),
-      logout: () =>
-        set({ user: null, token: null, notificationCount: 0 }),
+      logout: () => {
+        // Clear the httpOnly cookie server-side; local state clears at once.
+        fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        set({ user: null, notificationCount: 0 });
+      },
     }),
     {
       name: "cfe-storage",
       partialize: (state) => ({
-        token: state.token,
+        user: state.user,
         language: state.language,
         currency: state.currency,
         radius: state.radius,

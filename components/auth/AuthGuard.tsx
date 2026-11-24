@@ -5,27 +5,28 @@ import { useRouter } from "next/navigation";
 import { useAppStore } from "@/store/appStore";
 import { api } from "@/lib/api";
 
+/**
+ * Guards a page behind sign-in. The session is proven by the httpOnly
+ * `cfe_token` cookie (sent automatically with the /auth/me request) — no
+ * token is read from storage anymore.
+ */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { token, user, setUser, logout } = useAppStore();
+  const { user, setUser, logout } = useAppStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
+    if (user) return;
 
-    if (!user) {
-      api.get<{ id: string; name: string }>("/auth/me")
-        .then((userData) => setUser(userData as any))
-        .catch(() => {
-          logout();
-          router.replace("/login");
-        });
-    }
-  }, [token, user]);
+    api
+      .get<{ id: string; name: string }>("/auth/me")
+      .then((userData) => setUser(userData as any))
+      .catch(() => {
+        logout();
+        router.replace("/login");
+      });
+  }, [user, setUser, logout, router]);
 
-  if (!token || !user) {
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-stone-50">
         <div className="flex flex-col items-center gap-3">

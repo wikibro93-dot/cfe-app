@@ -1,0 +1,226 @@
+// Prisma 7 schema — url is NOT in the schema, it goes in prisma.config.ts
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String   @id @default(cuid())
+  phone           String   @unique
+  name            String
+  avatar          String?
+  bio             String?
+  role            Role     @default(COOK)
+  credits         Float    @default(10)
+  latitude        Float?
+  longitude       Float?
+  city            String?
+  country         String?
+  currency        String   @default("USD")
+  language        String   @default("en")
+  timezone        String   @default("UTC")
+  isVerified      Boolean  @default(false)
+  isVerifiedCook  Boolean  @default(false)
+  badges          String[] @default([])
+  totalSwaps      Int      @default(0)
+  totalDishes     Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  dishes          Dish[]
+  swapsAsBuyer    Swap[]             @relation("BuyerSwaps")
+  swapsAsCook     Swap[]             @relation("CookSwaps")
+  otps            OTP[]
+  creditTx        CreditTransaction[]
+  ratings         Rating[]           @relation("RatingsGiven")
+  receivedRatings Rating[]           @relation("RatingsReceived")
+  notifications   Notification[]
+  chatMessages    ChatMessage[]
+}
+
+model OTP {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+}
+
+model Dish {
+  id           String       @id @default(cuid())
+  title        String
+  description  String?
+  ingredients  String[]
+  category     DishCategory
+  image        String?
+  servings     Int
+  quantity     String
+  unit         String       @default("servings")
+  priceCredits Float        @default(0)
+  priceMoney   Float?
+  currency     String?
+  status       DishStatus   @default(AVAILABLE)
+  pickupFrom   DateTime
+  pickupTo     DateTime
+  latitude     Float
+  longitude    Float
+  address      String?
+  city         String
+  country      String
+  isSwappable  Boolean      @default(true)
+  isFree       Boolean      @default(false)
+  tags         String[]     @default([])
+  viewCount    Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  cook         User         @relation(fields: [cookId], references: [id])
+  cookId       String
+  swaps        Swap[]
+  ratings      Rating[]
+}
+
+model Swap {
+  id           String     @id @default(cuid())
+  type         SwapType
+  status       SwapStatus @default(PENDING)
+  creditAmount Float      @default(0)
+  moneyAmount  Float?
+  currency     String?
+  message      String?
+  confirmedAt  DateTime?
+  pickedUpAt   DateTime?
+  cancelledAt  DateTime?
+  cancelReason String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  dish         Dish         @relation(fields: [dishId], references: [id])
+  dishId       String
+  buyer        User         @relation("BuyerSwaps", fields: [buyerId], references: [id])
+  buyerId      String
+  cook         User         @relation("CookSwaps", fields: [cookId], references: [id])
+  cookId       String
+  rating       Rating?
+  notification Notification[]
+  chatMessages ChatMessage[]
+}
+
+model CreditTransaction {
+  id            String     @id @default(cuid())
+  amount        Float
+  type          CreditType
+  description   String
+  balanceBefore Float
+  balanceAfter  Float
+  swapId        String?
+  createdAt     DateTime   @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  score     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  rater   User   @relation("RatingsGiven", fields: [raterId], references: [id])
+  raterId String
+  rated   User   @relation("RatingsReceived", fields: [ratedId], references: [id])
+  ratedId String
+  dish    Dish?  @relation(fields: [dishId], references: [id])
+  dishId  String?
+  swap    Swap?  @relation(fields: [swapId], references: [id])
+  swapId  String? @unique
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  body      String
+  data      Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  swap   Swap?  @relation(fields: [swapId], references: [id])
+  swapId String?
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  text      String
+  createdAt DateTime @default(now())
+
+  swap     Swap   @relation(fields: [swapId], references: [id])
+  swapId   String
+  sender   User   @relation(fields: [senderId], references: [id])
+  senderId String
+}
+
+enum Role {
+  COOK
+  BUYER
+  MODERATOR
+  ADMIN
+}
+
+enum DishStatus {
+  AVAILABLE
+  RESERVED
+  PICKED_UP
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum DishCategory {
+  MAIN_COURSE
+  APPETIZER
+  DESSERT
+  BREAKFAST
+  SNACK
+  BEVERAGE
+  BAKED_GOODS
+  SOUP
+  SALAD
+  OTHER
+}
+
+enum SwapType {
+  DIRECT
+  CREDITS
+  FREE
+  MONEY
+}
+
+enum SwapStatus {
+  PENDING
+  CONFIRMED
+  PICKED_UP
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum CreditType {
+  EARNED
+  SPENT
+  PURCHASED
+  DONATED
+  BONUS
+  REFERRAL
+  REFUND
+}

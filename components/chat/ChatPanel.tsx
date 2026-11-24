@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAppStore } from "@/store/appStore";
-import { useSocket } from "@/hooks/useSocket";
 import { Send, X, MessageSquare, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import type { WSChatMessage } from "@/lib/socket";
+
+// NOTE: chat is REST polling (fix/critical-security). Socket.IO live push
+// was removed — the server never existed on Vercel serverless — so new
+// messages arrive by polling /api/chat/[swapId] every 5 seconds while the
+// panel is open. Auth is the httpOnly cookie; no token header is sent.
 
 interface ChatMessage {
   id: string;
@@ -23,9 +26,20 @@ interface ChatPanelProps {
   embedded?: boolean; // if true, renders inline rather than as overlay
 }
 
+function normalizeMessages(data: unknown): ChatMessage[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((m: any) => ({
+    id: m.id,
+    senderId: m.senderId,
+    senderName: m.sender?.name ?? "Unknown",
+    senderAvatar: m.sender?.avatar,
+    text: m.text,
+    createdAt: m.createdAt,
+  }));
+}
+
 export function ChatPanel({ swapId, otherUser, onClose, embedded }: ChatPanelProps) {
-  const { token, user } = useAppStore();
-  const { joinSwap, leaveSwap, subscribeToChat } = useSocket();
+  const { user } = useAppStore();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
@@ -34,58 +48,32 @@ export function ChatPanel({ swapId, otherUser, onClose, embedded }: ChatPanelPro
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load history
-  useEffect(() => {
-    if (!token || !swapId) return;
-
-    fetch(`/api/chat/${swapId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setMessages(
-            data.map((m: any) => ({
-              id: m.id,
-              senderId: m.senderId,
-              senderName: m.sender?.name ?? "Unknown",
-              senderAvatar: m.sender?.avatar,
-              text: m.text,
-              createdAt: m.createdAt,
-            }))
-          );
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [swapId, token]);
-
-  // Join WS room + subscribe to incoming messages
-  useEffect(() => {
-    joinSwap(swapId);
-
-    const unsub = subscribeToChat(swapId, (msg: WSChatMessage) => {
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/${swapId}`, { credentials: "same-origin" });
+      const data = await res.json();
+      const next = normalizeMessages(data);
+      // Merge by id so an optimistic message is not duplicated by the poll.
       setMessages((prev) => {
-        if (prev.find((m) => m.id === msg.id)) return prev;
-        return [
-          ...prev,
-          {
-            id: msg.id,
-            senderId: msg.senderId,
-            senderName: msg.senderName,
-            senderAvatar: msg.senderAvatar,
-            text: msg.text,
-            createdAt: msg.createdAt,
-          },
-        ];
+        const byId = new Map(prev.map((m) => [m.id, m]));
+        for (const m of next) byId.set(m.id, m);
+        return [...byId.values()].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
       });
-    });
+    } catch {
+      // Poll failure is non-fatal — the next poll retries.
+    }
+  }, [swapId]);
 
-    return () => {
-      leaveSwap(swapId);
-      unsub();
-    };
-  }, [swapId, joinSwap, leaveSwap, subscribeToChat]);
+  // Load history, then poll every 5s while open.
+  useEffect(() => {
+    if (!swapId) return;
+    setLoading(true);
+    loadMessages().finally(() => setLoading(false));
+    const timer = setInterval(loadMessages, 5000);
+    return () => clearInterval(timer);
+  }, [swapId, loadMessages]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -94,12 +82,12 @@ export function ChatPanel({ swapId, otherUser, onClose, embedded }: ChatPanelPro
 
   const sendMessage = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || !token) return;
+    if (!trimmed || sending || !user) return;
 
     const optimistic: ChatMessage = {
       id: `opt-${Date.now()}`,
-      senderId: user!.id,
-      senderName: user!.name,
+      senderId: user.id,
+      senderName: user.name,
       senderAvatar: user?.avatar,
       text: trimmed,
       createdAt: new Date().toISOString(),
@@ -112,14 +100,13 @@ export function ChatPanel({ swapId, otherUser, onClose, embedded }: ChatPanelPro
     try {
       const res = await fetch(`/api/chat/${swapId}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ text: trimmed }),
       });
 
       const saved = await res.json();
+      if (!res.ok) throw new Error(saved.message || "Failed to send");
 
       // Replace optimistic message with server message
       setMessages((prev) =>
@@ -133,7 +120,7 @@ export function ChatPanel({ swapId, otherUser, onClose, embedded }: ChatPanelPro
       setSending(false);
       inputRef.current?.focus();
     }
-  }, [text, sending, token, swapId, user]);
+  }, [text, sending, swapId, user]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {

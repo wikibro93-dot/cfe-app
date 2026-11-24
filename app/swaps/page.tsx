@@ -24,7 +24,7 @@ const TYPE_EMOJI: Record<string, string> = {
 };
 
 export default function SwapsPage() {
-  const { token, user, updateCredits } = useAppStore();
+  const { user, updateCredits } = useAppStore();
   const queryClient = useQueryClient();
   const [role, setRole] = useState<"all" | "buyer" | "cook">("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -32,13 +32,12 @@ export default function SwapsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["swaps", role],
     queryFn: async () => {
-      const res = await fetch(`/api/swaps?role=${role}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/swaps?role=${role}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Failed to load");
       return res.json();
     },
-    enabled: !!token,
+    enabled: !!user,
   });
 
   const doAction = async (swapId: string, action: string, extra?: Record<string, unknown>) => {
@@ -46,7 +45,8 @@ export default function SwapsPage() {
     try {
       const res = await fetch(`/api/swaps/${swapId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ action, ...extra }),
       });
       const data = await res.json();
@@ -57,12 +57,11 @@ export default function SwapsPage() {
       // Update credits after actions that affect credits
       if (action === "pickup" || action === "cancel") {
         // Fetch updated user data to get new credit balance
-        const userRes = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // (/api/auth/me returns the user fields at the top level, not nested.)
+        const userRes = await fetch("/api/auth/me", { credentials: "same-origin" });
         const userData = await userRes.json();
-        if (userData?.user?.credits !== undefined) {
-          updateCredits(userData.user.credits);
+        if (userData?.credits !== undefined) {
+          updateCredits(userData.credits);
         }
       }
     } catch (err: any) {

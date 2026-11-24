@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import toast from "react-hot-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { uploadImage } from "@/lib/upload";
 
 const CATEGORIES = [
   { value: "MAIN_COURSE", label: "Main Course", emoji: "🍛" },
@@ -26,7 +27,7 @@ export default function EditDishPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { token, userLocation, user } = useAppStore();
+  const { userLocation, user } = useAppStore();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -45,6 +46,7 @@ export default function EditDishPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [ingredientInput, setIngredientInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -52,9 +54,8 @@ export default function EditDishPage() {
   const { data: dish, isLoading, error } = useQuery({
     queryKey: ["dish", id],
     queryFn: async () => {
-      const res = await fetch(`/api/dishes/${id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/dishes/${id}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Dish not found");
       return res.json();
     },
@@ -96,26 +97,6 @@ export default function EditDishPage() {
     reader.readAsDataURL(file);
   };
 
-  const uploadImage = async (file: File): Promise<string | null> => {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    if (!cloudName) return null;
-
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("upload_preset", "cfe_dishes");
-
-    try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      return data.secure_url || null;
-    } catch {
-      return null;
-    }
-  };
-
   const addIngredient = () => {
     const val = ingredientInput.trim();
     if (val && !form.ingredients.includes(val)) {
@@ -151,13 +132,19 @@ export default function EditDishPage() {
     try {
       let imageUrl = image;
       if (imageFile) {
-        const uploadedUrl = await uploadImage(imageFile);
-        if (uploadedUrl) imageUrl = uploadedUrl;
+        // Shared, validated upload (type/size checked, Cloudinary URL verified).
+        try {
+          imageUrl = await uploadImage(imageFile);
+        } catch (err: any) {
+          toast.error(err.message || "Image upload failed");
+          return;
+        }
       }
 
       const res = await fetch(`/api/dishes/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           ...form,
           image: imageUrl,
@@ -177,6 +164,26 @@ export default function EditDishPage() {
       toast.error(err.message || "Failed to update dish");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("Cancel this dish? This cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/dishes/${id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      toast.success("Dish cancelled");
+      queryClient.invalidateQueries({ queryKey: ["dishes"] });
+      router.push("/feed");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to cancel dish");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -239,7 +246,7 @@ export default function EditDishPage() {
         {/* Title */}
         <Input
           label="Dish Name *"
-          placeholder="e.g. Mum's Biryani, Homemade Pasta..."
+          placeholder="e.g. Mum&apos;s Biryani, Homemade Pasta..."
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
         />
@@ -388,6 +395,15 @@ export default function EditDishPage() {
         <Button fullWidth size="lg" onClick={handleSubmit} loading={loading}>
           💾 Save Changes
         </Button>
+
+        {/* Cancel dish — DELETE /api/dishes/[id] previously had no UI calling it */}
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          className="w-full py-3 text-sm font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-2xl transition-colors disabled:opacity-40"
+        >
+          {deleting ? "Cancelling…" : "🗑️ Cancel Dish"}
+        </button>
       </div>
     </div>
   );

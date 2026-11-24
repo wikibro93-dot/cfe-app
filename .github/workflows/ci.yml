@@ -5,7 +5,7 @@ on:
     branches: [fix/critical-security]
   pull_request:
     branches: [main]
-    
+
 jobs:
   ci:
     runs-on: ubuntu-latest

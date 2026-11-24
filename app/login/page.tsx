@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import toast from "react-hot-toast";
 
-type Step = "phone" | "name";
+// Sign-in is SMS one-time code only. The old passwordless phone login
+// (POST /api/auth/login) was removed — it issued a token for any phone
+// number with no verification. No token is stored by this page: the
+// session lives in an httpOnly cookie set by /api/auth/verify-otp.
+
+type Step = "phone" | "name" | "otp";
 
 const COUNTRIES = [
   { code: "+1", flag: "🇺🇸", name: "US" },
@@ -22,47 +27,32 @@ const COUNTRIES = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser, setToken, setLanguage, setCurrency, setNotificationCount } = useAppStore();
+  const { setUser, setLanguage, setCurrency, setNotificationCount } = useAppStore();
 
   const [step, setStep] = useState<Step>("phone");
   const [countryCode, setCountryCode] = useState("+1");
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [isNewUser, setIsNewUser] = useState(false);
 
   const fullPhone = `${countryCode}${phone.replace(/^0+/, "")}`;
 
-  const handleLogin = async () => {
-    if (!phone || phone.length < 7) {
-      toast.error("Enter a valid phone number");
-      return;
-    }
+  const sendOtp = async () => {
     setLoading(true);
     try {
-      // Detect language and currency
-      const lang = navigator.language?.split("-")[0] || "en";
-      const supportedLangs = ["en", "ur", "de", "es"];
-      const language = supportedLangs.includes(lang) ? lang : "en";
-
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: fullPhone, name: name.trim(), language }),
+        body: JSON.stringify({ phone: fullPhone }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-
-      setToken(data.token);
-      setUser(data.user);
-      setLanguage(data.user.language || language);
-      setCurrency(data.user.currency || "USD");
-      setNotificationCount(data.unreadCount || 0);
-
-      toast.success(`Welcome${isNewUser ? " to CFE!" : " back!"} 🎉`);
-      router.replace("/feed");
+      setStep("otp");
+      toast.success("OTP sent — check your SMS");
     } catch (err: any) {
-      toast.error(err.message || "Login failed");
+      toast.error(err.message || "Failed to send OTP");
     } finally {
       setLoading(false);
     }
@@ -87,11 +77,43 @@ export default function LoginPage() {
         setIsNewUser(true);
         setStep("name");
       } else {
-        // Existing user, login directly
-        await handleLogin();
+        await sendOtp();
       }
     } catch (err: any) {
       toast.error(err.message || "Failed to check user");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!/^\d{6}$/.test(code)) {
+      toast.error("Enter the 6-digit code from your SMS");
+      return;
+    }
+    setLoading(true);
+    try {
+      const lang = navigator.language?.split("-")[0] || "en";
+      const supportedLangs = ["en", "ur", "de", "es"];
+      const language = supportedLangs.includes(lang) ? lang : "en";
+
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: fullPhone, code, name: name.trim(), language }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+
+      setUser(data.user);
+      setLanguage(data.user.language || language);
+      setCurrency(data.user.currency || "USD");
+      setNotificationCount(data.unreadCount || 0);
+
+      toast.success(`Welcome${isNewUser ? " to CFE!" : " back!"} 🎉`);
+      router.replace("/feed");
+    } catch (err: any) {
+      toast.error(err.message || "Verification failed");
     } finally {
       setLoading(false);
     }
@@ -111,7 +133,7 @@ export default function LoginPage() {
 
         {/* Step indicators */}
         <div className="flex gap-2 mb-8">
-          {["phone", ...(isNewUser ? ["name"] : [])].map((s, i) => (
+          {["phone", ...(isNewUser ? ["name"] : []), "otp"].map((s) => (
             <div
               key={s}
               className={`h-1.5 rounded-full transition-all duration-300 ${
@@ -149,28 +171,62 @@ export default function LoginPage() {
                 Continue →
               </Button>
               <p className="text-xs text-center text-stone-400">
-                Enter your phone number to login or sign up
+                We will text you a 6-digit code to sign in
               </p>
             </div>
           )}
 
           {step === "name" && (
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-4">
-              <h2 className="font-bold text-xl text-stone-900">What's your name?</h2>
-              <p className="text-sm text-stone-500">We're creating your account for {fullPhone}</p>
+              <h2 className="font-bold text-xl text-stone-900">What&apos;s your name?</h2>
+              <p className="text-sm text-stone-500">We&apos;re creating your account for {fullPhone}</p>
               <Input
                 placeholder="Your name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                onKeyDown={(e) => e.key === "Enter" && sendOtp()}
               />
-              <Button onClick={handleLogin} loading={loading} fullWidth size="lg">
-                Create Account 🎉
+              <Button onClick={sendOtp} loading={loading} fullWidth size="lg">
+                Send OTP 🎉
               </Button>
               <button
                 onClick={() => {
                   setStep("phone");
                   setIsNewUser(false);
+                }}
+                className="w-full text-sm text-stone-400 hover:text-stone-600 transition-colors"
+              >
+                ← Change number
+              </button>
+            </div>
+          )}
+
+          {step === "otp" && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-4">
+              <h2 className="font-bold text-xl text-stone-900">Enter the code</h2>
+              <p className="text-sm text-stone-500">We sent a 6-digit code to {fullPhone}. It expires in 10 minutes.</p>
+              <Input
+                type="tel"
+                placeholder="123456"
+                value={code}
+                maxLength={6}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onKeyDown={(e) => e.key === "Enter" && handleVerify()}
+              />
+              <Button onClick={handleVerify} loading={loading} fullWidth size="lg">
+                Verify &amp; Continue →
+              </Button>
+              <button
+                onClick={sendOtp}
+                disabled={loading}
+                className="w-full text-sm text-green-600 hover:text-green-700 font-semibold transition-colors disabled:opacity-40"
+              >
+                Resend code
+              </button>
+              <button
+                onClick={() => {
+                  setStep("phone");
+                  setCode("");
                 }}
                 className="w-full text-sm text-stone-400 hover:text-stone-600 transition-colors"
               >

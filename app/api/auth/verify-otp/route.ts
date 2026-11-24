@@ -77,6 +77,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const unreadCount = await prisma.notification.count({
+      where: { userId: user.id, read: false },
+    });
+
     const token = signToken({
       userId: user.id,
       phone: user.phone,
@@ -104,6 +108,7 @@ export async function POST(req: NextRequest) {
         totalSwaps: user.totalSwaps,
         totalDishes: user.totalDishes,
       },
+      unreadCount,
     });
     return setAuthCookie(res, token);
   } catch (error) {

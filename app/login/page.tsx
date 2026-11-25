@@ -238,7 +238,7 @@ export default function LoginPage() {
       </div>
 
       {/* Features strip */}
-      <div className="px-6 pb-8">
+      <div className="px-6 pb-4">
         <div className="flex justify-around text-center max-w-sm mx-auto">
           {[
             { emoji: "🔄", text: "Swap Dishes" },
@@ -251,6 +251,17 @@ export default function LoginPage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Legal links */}
+      <div className="px-6 pb-8 text-center text-xs text-stone-400">
+        <a href="/privacy" className="hover:text-stone-600 underline">
+          Privacy Policy
+        </a>
+        <span className="mx-2">·</span>
+        <a href="/terms" className="hover:text-stone-600 underline">
+          Terms of Service
+        </a>
       </div>
     </div>
   );

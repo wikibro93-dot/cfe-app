@@ -6,7 +6,9 @@ import type { CurrencyCode } from "@/lib/currency";
 interface User {
   id: string;
   name: string;
-  phone: string;
+  // Phone is null for social sign-in accounts (Google/Facebook).
+  phone: string | null;
+  email?: string | null;
   role: string;
   credits: number;
   avatar?: string;

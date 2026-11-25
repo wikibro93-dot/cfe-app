@@ -2,7 +2,9 @@ import jwt from "jsonwebtoken";
 
 export interface JWTPayload {
   userId: string;
-  phone: string;
+  // Phone is optional: social sign-in (Google/Facebook) has no phone
+  // number. Only userId + role are required to trust a token.
+  phone?: string;
   role: string;
   iat?: number;
   exp?: number;
@@ -32,7 +34,11 @@ function getSecret(): string {
 /** Sign a token with HMAC-SHA256. Throws if JWT_SECRET is not configured. */
 export function signToken(payload: JWTPayload): string {
   return jwt.sign(
-    { userId: payload.userId, phone: payload.phone, role: payload.role },
+    {
+      userId: payload.userId,
+      ...(payload.phone ? { phone: payload.phone } : {}),
+      role: payload.role,
+    },
     getSecret(),
     { algorithm: "HS256", expiresIn: TOKEN_MAX_AGE_SECONDS }
   );
@@ -48,7 +54,7 @@ export function verifyToken(token: string): JWTPayload | null {
     const decoded = jwt.verify(token, getSecret(), {
       algorithms: ["HS256"],
     }) as JWTPayload;
-    if (!decoded.userId || !decoded.phone || !decoded.role) return null;
+    if (!decoded.userId || !decoded.role) return null;
     return decoded;
   } catch {
     return null;

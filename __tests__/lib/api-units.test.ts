@@ -308,7 +308,15 @@ describe("lib/ratelimit", () => {
     expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
-    expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors none");
+    // 'none' must be quoted in CSP — unquoted it is parsed as a hostname.
+    expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    // Social sign-in needs Google's auth APIs, the Firebase auth handler
+    // frame, and provider profile photos.
+    expect(res.headers.get("Content-Security-Policy")).toContain("https://*.googleapis.com");
+    expect(res.headers.get("Content-Security-Policy")).toContain("https://*.firebaseapp.com");
+    expect(res.headers.get("Content-Security-Policy")).toContain(
+      "https://lh3.googleusercontent.com"
+    );
     expect(res.headers.get("Permissions-Policy")).toContain("camera=()");
   });
 });

@@ -11,7 +11,16 @@ datasource db {
 
 model User {
   id              String   @id @default(cuid())
-  phone           String   @unique
+  // Phone is optional now: social sign-in (Google/Facebook) has no phone
+  // number. Legacy phone accounts keep their number; new accounts leave
+  // it null until the user adds one in their profile.
+  phone           String?  @unique
+  // Email from the social provider (verified by Google/Facebook), used to
+  // link one person's Google and Facebook sign-ins to a single account.
+  email           String?  @unique
+  // Firebase Auth user id, set on social sign-in.
+  firebaseUid     String?  @unique
+  authProvider    AuthProvider?
   name            String
   avatar          String?
   bio             String?
@@ -200,6 +209,12 @@ enum Role {
   BUYER
   MODERATOR
   ADMIN
+}
+
+enum AuthProvider {
+  PHONE
+  GOOGLE
+  FACEBOOK
 }
 
 enum DishStatus {

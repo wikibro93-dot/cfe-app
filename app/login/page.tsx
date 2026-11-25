@@ -1,121 +1,133 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "@/store/appStore";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import toast from "react-hot-toast";
+import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase-client";
+import {
+  FacebookAuthProvider,
+  GoogleAuthProvider,
+  getRedirectResult,
+  signInWithRedirect,
+  type User as FirebaseUser,
+} from "firebase/auth";
 
-// Sign-in is SMS one-time code only. The old passwordless phone login
-// (POST /api/auth/login) was removed — it issued a token for any phone
-// number with no verification. No token is stored by this page: the
-// session lives in an httpOnly cookie set by /api/auth/verify-otp.
+// Sign-in is Google or Facebook via Firebase Auth — no passwords, no SMS
+// codes. Firebase verifies who the person is; this app then issues its own
+// httpOnly session cookie (POST /api/auth/social). The old phone+OTP form
+// was removed: the app is free with no revenue, and every SMS code would
+// be paid out of pocket. Phone numbers are now optional in the profile;
+// the OTP code stays in the codebase for a possible later "verified
+// number" badge. No token is stored by this page: the session lives in an
+// httpOnly cookie set by /api/auth/social.
 
-type Step = "phone" | "name" | "otp";
+const LANGUAGES = ["en", "ur", "de", "es"];
 
-const COUNTRIES = [
-  { code: "+1", flag: "🇺🇸", name: "US" },
-  { code: "+44", flag: "🇬🇧", name: "UK" },
-  { code: "+49", flag: "🇩🇪", name: "DE" },
-  { code: "+92", flag: "🇵🇰", name: "PK" },
-  { code: "+91", flag: "🇮🇳", name: "IN" },
-  { code: "+55", flag: "🇧🇷", name: "BR" },
-  { code: "+52", flag: "🇲🇽", name: "MX" },
-  { code: "+234", flag: "🇳🇬", name: "NG" },
-];
+function FacebookIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.9h2.54V9.85c0-2.52 1.5-3.91 3.77-3.91 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.57v1.88h2.78l-.45 2.9h-2.33V22c4.78-.76 8.44-4.92 8.44-9.94z" />
+    </svg>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+      <path
+        fill="#FFC107"
+        d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.223 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+      />
+      <path
+        fill="#FF3D00"
+        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
+      />
+      <path
+        fill="#4CAF50"
+        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
+      />
+      <path
+        fill="#1976D2"
+        d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
+      />
+    </svg>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const { setUser, setLanguage, setCurrency, setNotificationCount } = useAppStore();
 
-  const [step, setStep] = useState<Step>("phone");
-  const [countryCode, setCountryCode] = useState("+1");
-  const [phone, setPhone] = useState("");
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(false);
+  const [loading, setLoading] = useState<"facebook" | "google" | "finishing" | null>(null);
+  const [configured] = useState(isFirebaseConfigured());
 
-  const fullPhone = `${countryCode}${phone.replace(/^0+/, "")}`;
+  const finishSignIn = useCallback(
+    async (fbUser: FirebaseUser) => {
+      setLoading("finishing");
+      try {
+        const idToken = await fbUser.getIdToken();
+        const lang = navigator.language?.split("-")[0] || "en";
+        const language = LANGUAGES.includes(lang) ? lang : "en";
 
-  const sendOtp = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: fullPhone }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-      setStep("otp");
-      toast.success("OTP sent — check your SMS");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to send OTP");
-    } finally {
-      setLoading(false);
-    }
-  };
+        const res = await fetch("/api/auth/social", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken, language }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message);
 
-  const handleCheckUser = async () => {
-    if (!phone || phone.length < 7) {
-      toast.error("Enter a valid phone number");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/check-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: fullPhone }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
+        setUser(data.user);
+        setLanguage(data.user.language || language);
+        setCurrency(data.user.currency || "USD");
+        setNotificationCount(data.unreadCount || 0);
 
-      if (data.isNewUser) {
-        setIsNewUser(true);
-        setStep("name");
-      } else {
-        await sendOtp();
+        toast.success(`Welcome${data.isNewUser ? " to CFE!" : " back!"} 🎉`);
+        router.replace("/feed");
+      } catch (err: any) {
+        toast.error(err.message || "Sign-in failed");
+      } finally {
+        setLoading(null);
       }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to check user");
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [router, setUser, setLanguage, setCurrency, setNotificationCount]
+  );
 
-  const handleVerify = async () => {
-    if (!/^\d{6}$/.test(code)) {
-      toast.error("Enter the 6-digit code from your SMS");
+  // After the redirect back from Google/Facebook, complete the sign-in.
+  useEffect(() => {
+    const auth = getFirebaseAuth();
+    if (!auth) return;
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) void finishSignIn(result.user);
+        else if (auth.currentUser) void finishSignIn(auth.currentUser);
+      })
+      .catch((err) => {
+        console.error("Sign-in redirect error:", err);
+        toast.error("Sign-in failed — please try again");
+      });
+  }, [finishSignIn]);
+
+  const signIn = async (providerName: "facebook" | "google") => {
+    const auth = getFirebaseAuth();
+    if (!auth) {
+      toast.error("Sign-in is still being set up — please check back soon");
       return;
     }
-    setLoading(true);
+    setLoading(providerName);
     try {
-      const lang = navigator.language?.split("-")[0] || "en";
-      const supportedLangs = ["en", "ur", "de", "es"];
-      const language = supportedLangs.includes(lang) ? lang : "en";
-
-      const res = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: fullPhone, code, name: name.trim(), language }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
-
-      setUser(data.user);
-      setLanguage(data.user.language || language);
-      setCurrency(data.user.currency || "USD");
-      setNotificationCount(data.unreadCount || 0);
-
-      toast.success(`Welcome${isNewUser ? " to CFE!" : " back!"} 🎉`);
-      router.replace("/feed");
+      const provider =
+        providerName === "facebook"
+          ? new FacebookAuthProvider()
+          : new GoogleAuthProvider();
+      // Redirect (not a popup): popups are often blocked on mobile browsers.
+      await signInWithRedirect(auth, provider);
+      // The page navigates away to the provider; finishSignIn runs on return.
     } catch (err: any) {
-      toast.error(err.message || "Verification failed");
-    } finally {
-      setLoading(false);
+      console.error("Sign-in start error:", err);
+      toast.error(err.message || "Could not start sign-in");
+      setLoading(null);
     }
   };
 
@@ -131,109 +143,38 @@ export default function LoginPage() {
           Share food. Build community. 🌍
         </p>
 
-        {/* Step indicators */}
-        <div className="flex gap-2 mb-8">
-          {["phone", ...(isNewUser ? ["name"] : []), "otp"].map((s) => (
-            <div
-              key={s}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                step === s ? "w-8 bg-green-600" : "w-1.5 bg-stone-200"
-              }`}
-            />
-          ))}
-        </div>
-
         <div className="w-full max-w-sm space-y-4">
-          {step === "phone" && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-4">
-              <h2 className="font-bold text-xl text-stone-900">Enter your number</h2>
-              <div className="flex gap-2">
-                <select
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                  className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 text-sm font-semibold text-stone-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
-                  {COUNTRIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.flag} {c.code}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  type="tel"
-                  placeholder="Phone number"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCheckUser()}
-                />
-              </div>
-              <Button onClick={handleCheckUser} loading={loading} fullWidth size="lg">
-                Continue →
-              </Button>
-              <p className="text-xs text-center text-stone-400">
-                We will text you a 6-digit code to sign in
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-3">
+            <h2 className="font-bold text-xl text-stone-900">Welcome</h2>
+            <p className="text-sm text-stone-500">
+              Sign in to share food and swap dishes with neighbours.
+            </p>
+            <button
+              onClick={() => signIn("facebook")}
+              disabled={!configured || loading !== null}
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] text-white font-semibold py-3 px-4 hover:bg-[#166fe5] transition-colors disabled:opacity-50"
+            >
+              <FacebookIcon /> Continue with Facebook
+            </button>
+            <button
+              onClick={() => signIn("google")}
+              disabled={!configured || loading !== null}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white text-stone-700 font-semibold py-3 px-4 hover:bg-stone-50 transition-colors disabled:opacity-50"
+            >
+              <GoogleIcon /> Continue with Google
+            </button>
+            {loading === "finishing" && (
+              <p className="text-sm text-center text-stone-500">Finishing sign-in…</p>
+            )}
+            {!configured && (
+              <p className="text-xs text-center text-amber-600">
+                Sign-in is still being set up — please check back soon.
               </p>
-            </div>
-          )}
-
-          {step === "name" && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-4">
-              <h2 className="font-bold text-xl text-stone-900">What&apos;s your name?</h2>
-              <p className="text-sm text-stone-500">We&apos;re creating your account for {fullPhone}</p>
-              <Input
-                placeholder="Your name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendOtp()}
-              />
-              <Button onClick={sendOtp} loading={loading} fullWidth size="lg">
-                Send OTP 🎉
-              </Button>
-              <button
-                onClick={() => {
-                  setStep("phone");
-                  setIsNewUser(false);
-                }}
-                className="w-full text-sm text-stone-400 hover:text-stone-600 transition-colors"
-              >
-                ← Change number
-              </button>
-            </div>
-          )}
-
-          {step === "otp" && (
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-stone-100 animate-fade-in-up space-y-4">
-              <h2 className="font-bold text-xl text-stone-900">Enter the code</h2>
-              <p className="text-sm text-stone-500">We sent a 6-digit code to {fullPhone}. It expires in 10 minutes.</p>
-              <Input
-                type="tel"
-                placeholder="123456"
-                value={code}
-                maxLength={6}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                onKeyDown={(e) => e.key === "Enter" && handleVerify()}
-              />
-              <Button onClick={handleVerify} loading={loading} fullWidth size="lg">
-                Verify &amp; Continue →
-              </Button>
-              <button
-                onClick={sendOtp}
-                disabled={loading}
-                className="w-full text-sm text-green-600 hover:text-green-700 font-semibold transition-colors disabled:opacity-40"
-              >
-                Resend code
-              </button>
-              <button
-                onClick={() => {
-                  setStep("phone");
-                  setCode("");
-                }}
-                className="w-full text-sm text-stone-400 hover:text-stone-600 transition-colors"
-              >
-                ← Change number
-              </button>
-            </div>
-          )}
+            )}
+            <p className="text-xs text-center text-stone-400">
+              No password to remember. We never see your Google or Facebook password.
+            </p>
+          </div>
         </div>
       </div>
 

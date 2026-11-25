@@ -18,6 +18,7 @@ interface RateLimitConfig {
 const RATE_LIMITS: Record<string, RateLimitConfig> = {
   "send-otp": { limit: 3, windowMs: 60_000 }, // 3 per minute
   "verify-otp": { limit: 5, windowMs: 60_000 }, // 5 per minute
+  "auth-social": { limit: 5, windowMs: 60_000 }, // 5 social sign-ins per minute
   "api-general": { limit: 120, windowMs: 60_000 }, // 120 per minute
   "api-write": { limit: 30, windowMs: 60_000 }, // 30 writes per minute
   "api-search": { limit: 60, windowMs: 60_000 }, // 60 searches per minute
@@ -150,8 +151,9 @@ export function addSecurityHeaders(response: NextResponse): NextResponse {
       "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // needed for Next.js
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https://res.cloudinary.com https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://*.basemaps.cartocdn.com",
-      "connect-src 'self' wss: https://api.cloudinary.com https://exchangeratesapi.io",
+      "img-src 'self' data: blob: https://res.cloudinary.com https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://*.basemaps.cartocdn.com https://lh3.googleusercontent.com https://graph.facebook.com https://platform-lookaside.fbsbx.com https://*.fbcdn.net",
+      "connect-src 'self' wss: https://api.cloudinary.com https://exchangeratesapi.io https://*.googleapis.com",
+      "frame-src 'self' https://*.firebaseapp.com",
       "frame-ancestors 'none'",
     ].join("; ")
   );

@@ -40,11 +40,11 @@ export default function TermsPage() {
 
           <Section title="Who can use CFE">
             <p>
-              You must be at least 18 years old to use CFE. You need a valid
-              phone number to create an account. One person may have one
-              account. You are responsible for keeping your phone number up to
-              date and for anything done on your account. Sign-in codes are
-              personal — never share a code with anyone, including someone
+              You must be at least 18 years old to use CFE. You need a Google
+              or Facebook account to sign in. One person may have one
+              account. You are responsible for keeping your sign-in account
+              secure and for anything done on your account. Never share your
+              Google or Facebook password with anyone, including someone
               claiming to be from CFE.
             </p>
           </Section>

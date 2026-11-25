@@ -41,8 +41,9 @@ export default function PrivacyPage() {
             <p>When you use CFE, we collect:</p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>Phone number and name</strong> — to create your account and
-                verify it with a one-time SMS code.
+                <strong>Name and email address from your Google or Facebook
+                account</strong> — to create your account and sign you in. A
+                phone number is optional; you can add one in your profile.
               </li>
               <li>
                 <strong>Profile details you add</strong> — such as a photo and bio.
@@ -68,8 +69,8 @@ export default function PrivacyPage() {
           </Section>
 
           <Section title="How we use your information">
-            <p>We use your information to run the service: to verify your phone
-            number, show nearby dishes, arrange swaps, keep credits accurate,
+            <p>We use your information to run the service: to sign you in,
+            show nearby dishes, arrange swaps, keep credits accurate,
             prevent abuse, and keep the platform safe. We do not sell your
             personal information to anyone.</p>
           </Section>
@@ -78,28 +79,26 @@ export default function PrivacyPage() {
             <p>
               Other members can see your public profile (name, photo, dishes,
               ratings) and the pickup location of dishes you list. Your phone
-              number is never shown to other members. Service providers help us
-              run CFE — an SMS provider delivers your sign-in code, an image
+              number, if you add one, is never shown to other members. Service providers help us
+              run CFE — Google and Facebook provide sign-in, an image
               host stores dish photos, and a database host stores your account
               data. They only process information as needed to provide those
               services.
             </p>
           </Section>
 
-          <Section title="Sign-in codes and security">
+          <Section title="Sign-in and security">
             <p>
-              Sign-in codes are sent by SMS, expire after 10 minutes, and can
-              only be used once. We store codes only as one-way hashes, never
-              as plain text, and a code stops working after 5 wrong attempts.
-              Your session is stored in a secure, httpOnly cookie that
+              You sign in with your Google or Facebook account. We never see
+              your Google or Facebook password, and we never ask for it. Your
+              session is stored in a secure, httpOnly cookie that
               JavaScript on the page cannot read.
             </p>
           </Section>
 
           <Section title="How long we keep your information">
             <p>
-              We keep your information while your account is active. Sign-in
-              codes are deleted after they expire or are used. If you stop
+              We keep your information while your account is active. If you stop
               using CFE, you can sign out at any time; to request deletion of
               your account and personal data, contact the team running the
               service (see below).

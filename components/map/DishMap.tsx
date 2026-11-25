@@ -48,11 +48,6 @@ const STATUS_BORDER: Record<string, string> = {
 };
 
 const TILE_LAYERS = {
-  clean: {
-    name: "Clean",
-    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-  },
   street: {
     name: "Street",
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -64,6 +59,9 @@ const TILE_LAYERS = {
     attribution: '&copy; OpenStreetMap contributors &copy; OpenTopoMap',
   },
 };
+// NOTE: CARTO basemaps (basemaps.cartocdn.com) were removed — they now return
+// an "API KEY REQUIRED" placeholder for keyless requests. Street (OSM) and
+// Terrain (OpenTopoMap) need no key.
 
 // Simple debounce function
 function debounce<T extends (...args: any[]) => any>(
@@ -99,7 +97,7 @@ export function DishMap({
   const markersRef = useRef<any[]>([]);
   const userMarkerRef = useRef<any>(null);
   const tileLayersRef = useRef<any>({});
-  const [currentTileLayer, setCurrentTileLayer] = useState<keyof typeof TILE_LAYERS>("clean");
+  const [currentTileLayer, setCurrentTileLayer] = useState<keyof typeof TILE_LAYERS>("street");
   const [visibleCount, setVisibleCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -364,17 +362,6 @@ export function DishMap({
       <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-1000">
         <div className="bg-white rounded-lg shadow-lg border border-stone-200 p-1">
           <button
-            onClick={() => switchTileLayer("clean")}
-            className={`px-3 py-2 text-xs font-semibold rounded transition-colors ${
-              currentTileLayer === "clean" 
-                ? "bg-green-600 text-white" 
-                : "text-stone-600 hover:bg-stone-100"
-            }`}
-            title="Clean (Carto)"
-          >
-            Clean
-          </button>
-          <button
             onClick={() => switchTileLayer("street")}
             className={`px-3 py-2 text-xs font-semibold rounded transition-colors ${
               currentTileLayer === "street" 
@@ -463,8 +450,8 @@ export function LocationPicker({
       zoom: 15,
     });
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; OpenStreetMap contributors',
       maxZoom: 19,
       keepBuffer: 4,
     }).addTo(map);

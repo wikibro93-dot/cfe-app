@@ -106,11 +106,9 @@ export default function TrackMap({
     });
   };
 
-  // Tile layer URL based on theme
-  const tileUrl =
-    theme === "dark"
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  // Tile layer: OpenStreetMap standard (no key needed — CARTO basemaps now
+  // require an API key and return a placeholder without one).
+  const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   // Calculate map center - prioritize cook location, then buyer, then dish
   const mapCenter = cookLocation || buyerLocation || dishLocation;
@@ -123,7 +121,7 @@ export default function TrackMap({
     >
       <TileLayer
         url={tileUrl}
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         maxZoom={19}
         keepBuffer={4}
       />

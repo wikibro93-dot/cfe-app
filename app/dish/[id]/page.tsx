@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Clock, MapPin, Users, Star, Zap, MessageSquare } from "lucide-react";
 import { useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/Button";
+import { ShareWhatsAppLocation } from "@/components/ShareWhatsAppLocation";
 import { Input } from "@/components/ui/Input";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
@@ -188,6 +189,14 @@ export default function DishDetailPage() {
               zoom={15}
               height="200px"
             />
+            <div className="mt-2">
+              <ShareWhatsAppLocation
+                latitude={dish.latitude}
+                longitude={dish.longitude}
+                title={dish.title}
+                address={dish.address}
+              />
+            </div>
           </div>
         )}
 

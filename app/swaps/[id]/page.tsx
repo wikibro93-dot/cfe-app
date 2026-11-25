@@ -6,6 +6,7 @@ import { useRouter, useParams } from "next/navigation";
 import { useAppStore } from "@/store/appStore";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/Button";
+import { ShareWhatsAppLocation } from "@/components/ShareWhatsAppLocation";
 import { ChatBubble } from "@/components/chat/ChatPanel";
 import {
   MapPin,
@@ -160,6 +161,16 @@ export default function SwapDetailsPage() {
               </div>
             </div>
           </div>
+          {swap.dish.latitude && swap.dish.longitude && (
+            <div className="mt-3">
+              <ShareWhatsAppLocation
+                latitude={swap.dish.latitude}
+                longitude={swap.dish.longitude}
+                title={swap.dish.title}
+                address={swap.dish.address}
+              />
+            </div>
+          )}
         </div>
 
         {/* Participants */}

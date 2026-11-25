@@ -10,18 +10,17 @@ import { AuthGuard } from "@/components/auth/AuthGuard";
 export default function SwapChatPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
 
   const { data: swap, isLoading } = useQuery({
     queryKey: ["swap", id],
     queryFn: async () => {
-      const res = await fetch(`/api/swaps/${id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/swaps/${id}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Not found");
       return res.json();
     },
-    enabled: !!token && !!id,
+    enabled: !!user && !!id,
   });
 
   const otherUser = swap

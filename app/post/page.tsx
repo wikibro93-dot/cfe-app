@@ -9,6 +9,7 @@ import { Input, Textarea } from "@/components/ui/Input";
 import { Header } from "@/components/layout/Header";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { uploadImage } from "@/lib/upload";
 
 const CATEGORIES = [
   { value: "MAIN_COURSE", label: "Main Course", emoji: "🍛" },
@@ -26,7 +27,7 @@ const CATEGORIES = [
 export default function PostPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { token, userLocation, user } = useAppStore();
+  const { userLocation, user } = useAppStore();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
@@ -57,26 +58,6 @@ export default function PostPage() {
     const reader = new FileReader();
     reader.onload = (ev) => setImage(ev.target?.result as string);
     reader.readAsDataURL(file);
-  };
-
-  const uploadImage = async (file: File): Promise<string | null> => {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    if (!cloudName) return null;
-
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("upload_preset", "cfe_dishes");
-
-    try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      return data.secure_url || null;
-    } catch {
-      return null;
-    }
   };
 
   const addIngredient = () => {
@@ -115,12 +96,19 @@ export default function PostPage() {
     try {
       let imageUrl: string | null = null;
       if (imageFile) {
-        imageUrl = await uploadImage(imageFile);
+        // Shared, validated upload (type/size checked, Cloudinary URL verified).
+        try {
+          imageUrl = await uploadImage(imageFile);
+        } catch (err: any) {
+          toast.error(err.message || "Image upload failed");
+          return;
+        }
       }
 
       const res = await fetch("/api/dishes", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           ...form,
           image: imageUrl,
@@ -171,7 +159,7 @@ export default function PostPage() {
         {/* Title */}
         <Input
           label="Dish Name *"
-          placeholder="e.g. Mum's Biryani, Homemade Pasta..."
+          placeholder="e.g. Mum&apos;s Biryani, Homemade Pasta..."
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
         />

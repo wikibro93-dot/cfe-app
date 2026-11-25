@@ -1,10 +1,10 @@
 "use client";
 
-import { useSocket } from "@/hooks/useSocket";
-
-// This component just mounts the socket hook at the app level,
-// so the connection is established as soon as the user logs in.
+/**
+ * Passthrough (fix/critical-security). Socket.IO live push was removed —
+ * see lib/socket.ts — so this provider no longer opens a connection. It
+ * is kept as a passthrough so app/providers.tsx needs no changes.
+ */
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  useSocket(); // establishes connection, sets up global listeners
   return <>{children}</>;
 }

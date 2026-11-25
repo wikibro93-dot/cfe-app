@@ -1,18 +1,19 @@
-import { useAppStore } from "@/store/appStore";
-
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
+/**
+ * Auth is sent via the httpOnly `cfe_token` cookie (set by /api/auth/verify-otp).
+ * No token is read from storage and no Authorization header is sent —
+ * `credentials: "same-origin"` lets the browser attach the cookie.
+ */
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = useAppStore.getState().token;
-
   const res = await fetch(`${BASE_URL}/api${endpoint}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });

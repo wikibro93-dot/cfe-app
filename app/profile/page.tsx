@@ -22,7 +22,7 @@ const BADGE_EMOJI: Record<string, string> = {
 };
 
 export default function ProfilePage() {
-  const { token, user, setUser, logout, setLanguage, setCurrency, language, currency, updateCredits } = useAppStore();
+  const { user, setUser, logout, setLanguage, setCurrency, language, currency, updateCredits } = useAppStore();
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: user?.name || "", bio: user?.bio || "" });
@@ -32,31 +32,29 @@ export default function ProfilePage() {
   const { data: currentUser } = useQuery({
     queryKey: ["currentUser"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch("/api/auth/me", { credentials: "same-origin" });
       return res.json();
     },
-    enabled: !!token,
+    enabled: !!user,
     refetchInterval: 30000, // Refetch every 30 seconds to get updated credits
   });
 
   // Update credits in store when currentUser data changes
+  // (/api/auth/me returns the user fields at the top level, not nested.)
   useEffect(() => {
-    if (currentUser?.user?.credits !== undefined) {
-      updateCredits(currentUser.user.credits);
+    if (currentUser?.credits !== undefined) {
+      updateCredits(currentUser.credits);
     }
   }, [currentUser, updateCredits]);
 
   const { data: myDishes } = useQuery({
     queryKey: ["myDishes"],
     queryFn: async () => {
-      const res = await fetch("/api/dishes?cookId=me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch("/api/dishes?cookId=me", { credentials: "same-origin" });
       return res.json();
     },
-    enabled: !!token,
+    enabled: !!user,
   });
 
   const handleSave = async () => {
@@ -64,7 +62,8 @@ export default function ProfilePage() {
     try {
       const res = await fetch("/api/auth/me", {
         method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ ...form, language, currency }),
       });
       const data = await res.json();
@@ -85,6 +84,8 @@ export default function ProfilePage() {
   };
 
   if (!user) return null;
+
+  const dishes = myDishes?.dishes || [];
 
   return (
     <div>
@@ -153,6 +154,30 @@ export default function ProfilePage() {
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => setEditing(false)} fullWidth>Cancel</Button>
               <Button onClick={handleSave} loading={saving} fullWidth>Save</Button>
+            </div>
+          </div>
+        )}
+
+        {/* My dishes — previously fetched but never rendered */}
+        {dishes.length > 0 && (
+          <div className="bg-white rounded-2xl border border-stone-100 p-4">
+            <h3 className="font-bold text-stone-800 mb-3">🍽️ My Dishes</h3>
+            <div className="space-y-2">
+              {dishes.map((dish: any) => (
+                <Link key={dish.id} href={`/dish/${dish.id}`}>
+                  <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-stone-50 transition-colors">
+                    {dish.image ? (
+                      <img src={dish.image} alt={dish.title} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-xl shrink-0">🍽️</div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-stone-800 truncate">{dish.title}</p>
+                      <p className="text-xs text-stone-400">{dish.status?.replace("_", " ")} • {dish.isFree ? "Free" : `${dish.priceCredits} credits`}</p>
+                    </div>
+                  </div>
+                </Link>
+              ))}
             </div>
           </div>
         )}

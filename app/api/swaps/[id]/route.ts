@@ -1,7 +1,12 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAuthUser, unauthorized, notFound, success, serverError, badRequest, forbidden } from "@/lib/middleware";
-import { emitToUser, emitToSwap } from "@/lib/socket";
+import { rateLimit } from "@/lib/ratelimit";
+
+// NOTE: live Socket.IO push was removed (see lib/socket.ts) — Vercel
+// serverless cannot run a long-lived Socket.IO server, and the emit calls
+// below were no-ops. State changes are delivered via in-app notifications
+// and REST polling instead.
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -32,6 +37,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const rl = await rateLimit(req, "api-write");
+    if (!rl.success) return rl.response!;
+
     const user = await getAuthUser(req);
     if (!user) return unauthorized();
 
@@ -66,23 +74,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           },
         });
 
-        // Emit real-time notification to buyer
-        emitToUser(swap.buyerId, "notification:new", {
-          id: `${swap.id}-confirmed`,
-          type: "SWAP_CONFIRMED",
-          title: "Swap Confirmed! ✅",
-          body: `Your swap for "${swap.dish.title}" has been confirmed. Ready for pickup!`,
-          data: { swapId: swap.id },
-          createdAt: new Date().toISOString(),
-        });
-
-        // Emit swap update to both parties
-        emitToSwap(swap.id, "swap:updated", {
-          swapId: swap.id,
-          status: "CONFIRMED",
-          updatedAt: new Date().toISOString(),
-        });
-
         return success({ message: "Swap confirmed" });
       }
 
@@ -104,8 +95,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             data: { status: "PICKED_UP" },
           });
 
-          // Award credits to cook
+          // Award credits to cook — balanceBefore/After are read fresh
+          // inside the transaction (the old code used a stale snapshot).
           if (swap.creditAmount > 0) {
+            const cook = await tx.user.findUnique({
+              where: { id: swap.cookId },
+              select: { credits: true },
+            });
+            const balanceBefore = cook?.credits ?? 0;
             await tx.user.update({
               where: { id: swap.cookId },
               data: { credits: { increment: swap.creditAmount } },
@@ -117,8 +114,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 amount: swap.creditAmount,
                 type: "EARNED",
                 description: `Earned from swap: ${swap.dish.title}`,
-                balanceBefore: swap.cook.credits,
-                balanceAfter: swap.cook.credits + swap.creditAmount,
+                balanceBefore,
+                balanceAfter: balanceBefore + swap.creditAmount,
               },
             });
           }
@@ -140,23 +137,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           },
         });
 
-        // Emit real-time notification to cook
-        emitToUser(swap.cookId, "notification:new", {
-          id: `${swap.id}-pickup`,
-          type: "PICKUP_CONFIRMED",
-          title: "Pickup Confirmed! 🎉",
-          body: `"${swap.dish.title}" has been picked up. Credits transferred!`,
-          data: { swapId: swap.id },
-          createdAt: new Date().toISOString(),
-        });
-
-        // Emit swap update to both parties
-        emitToSwap(swap.id, "swap:updated", {
-          swapId: swap.id,
-          status: "PICKED_UP",
-          updatedAt: new Date().toISOString(),
-        });
-
         return success({ message: "Pickup confirmed" });
       }
 
@@ -164,8 +144,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         if (swap.buyerId !== user.id && swap.cookId !== user.id && user.role !== "ADMIN") {
           return forbidden();
         }
-        if (["COMPLETED", "CANCELLED"].includes(swap.status)) {
-          return badRequest("Cannot cancel a completed or already cancelled swap");
+        // PICKED_UP can no longer be cancelled: the cook has already been
+        // paid, and the old code reset the dish to AVAILABLE while skipping
+        // the refund — a state that loses the cook the dish and the credits.
+        if (["COMPLETED", "CANCELLED", "PICKED_UP"].includes(swap.status)) {
+          return badRequest("Cannot cancel a completed, picked-up or already cancelled swap");
         }
 
         const otherPartyId = user.id === swap.buyerId ? swap.cookId : swap.buyerId;
@@ -176,8 +159,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
             data: { status: "CANCELLED", cancelledAt: new Date(), cancelReason },
           });
 
-          // Refund credits if deducted
+          // Refund credits if deducted (balance read fresh in-transaction).
           if (swap.creditAmount > 0 && swap.status !== "PICKED_UP") {
+            const buyer = await tx.user.findUnique({
+              where: { id: swap.buyerId },
+              select: { credits: true },
+            });
+            const balanceBefore = buyer?.credits ?? 0;
             await tx.user.update({
               where: { id: swap.buyerId },
               data: { credits: { increment: swap.creditAmount } },
@@ -189,8 +177,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
                 amount: swap.creditAmount,
                 type: "REFUND",
                 description: `Refund for cancelled swap: ${swap.dish.title}`,
-                balanceBefore: swap.buyer.credits,
-                balanceAfter: swap.buyer.credits + swap.creditAmount,
+                balanceBefore,
+                balanceAfter: balanceBefore + swap.creditAmount,
               },
             });
           }
@@ -220,6 +208,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         if (swap.buyerId !== user.id) return forbidden();
         if (swap.status !== "PICKED_UP") return badRequest("Can only rate after pickup");
         if (!score || score < 1 || score > 5) return badRequest("Score must be 1-5");
+        if (typeof comment === "string" && comment.length > 1000) return badRequest("Comment must be at most 1000 characters");
         if (swap.rating) return badRequest("Already rated");
 
         await prisma.$transaction(async (tx: any) => {

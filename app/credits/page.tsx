@@ -9,12 +9,11 @@ import { format } from "date-fns";
 import toast from "react-hot-toast";
 import { TrendingUp, TrendingDown, Coins, Gift, Heart } from "lucide-react";
 
-const CREDIT_PACKAGES = [
-  { amount: 10, price: "$1", popular: false },
-  { amount: 25, price: "$2.50", popular: true },
-  { amount: 50, price: "$4.50", popular: false },
-  { amount: 100, price: "$8", popular: false },
-];
+// NOTE: credit purchase is DISABLED (fix/critical-security). There is no
+// Stripe integration, so purchases can never be verified — the old code
+// minted credits from a client-supplied amount. The Buy tab and its
+// "Payments processed securely via Stripe" claim were removed. Credits
+// are earned by sharing dishes and spent/refunded through swaps only.
 
 const TYPE_CONFIG: Record<string, { icon: string; color: string; sign: string }> = {
   EARNED: { icon: "🍽️", color: "text-green-600", sign: "+" },
@@ -27,43 +26,21 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string; sign: string }>
 };
 
 export default function CreditsPage() {
-  const { token, user, updateCredits } = useAppStore();
+  const { user, updateCredits } = useAppStore();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<"overview" | "buy" | "donate">("overview");
+  const [tab, setTab] = useState<"overview" | "donate">("overview");
   const [donateAmount, setDonateAmount] = useState("5");
   const [loading, setLoading] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["credits"],
     queryFn: async () => {
-      const res = await fetch("/api/credits", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch("/api/credits", { credentials: "same-origin" });
       return res.json();
     },
-    enabled: !!token,
+    enabled: !!user,
   });
-
-  const handleBuyCredits = async (amount: number) => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/credits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: "PURCHASE", amount }),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message);
-      toast.success(`Added ${amount} credits! 💰`);
-      updateCredits(result.newBalance);
-      queryClient.invalidateQueries({ queryKey: ["credits"] });
-      setTab("overview");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to purchase credits");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDonate = async () => {
     const amount = parseFloat(donateAmount);
@@ -72,17 +49,18 @@ export default function CreditsPage() {
     try {
       const res = await fetch("/api/credits", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ type: "DONATE", amount }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.message);
       toast.success(result.message || "Thank you! 💚");
-      
+
       // Update credits after donation
       const newBalance = (user?.credits || 0) - amount;
       updateCredits(newBalance);
-      
+
       queryClient.invalidateQueries({ queryKey: ["credits"] });
       setTab("overview");
     } catch (err: any) {
@@ -113,7 +91,6 @@ export default function CreditsPage() {
         <div className="flex gap-2 bg-stone-100 rounded-2xl p-1">
           {[
             { value: "overview", label: "History" },
-            { value: "buy", label: "Buy Credits" },
             { value: "donate", label: "Donate 💚" },
           ].map(({ value, label }) => (
             <button
@@ -154,46 +131,6 @@ export default function CreditsPage() {
                 );
               })
             )}
-          </div>
-        )}
-
-        {/* Buy tab */}
-        {tab === "buy" && (
-          <div className="space-y-3">
-            <p className="text-sm text-stone-500 font-medium">
-              Buy credits to get dishes from community cooks
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              {CREDIT_PACKAGES.map(({ amount, price, popular }) => (
-                <div
-                  key={amount}
-                  className={`relative bg-white rounded-2xl p-4 border-2 text-center ${
-                    popular ? "border-green-500" : "border-stone-100"
-                  }`}
-                >
-                  {popular && (
-                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                      Popular
-                    </span>
-                  )}
-                  <p className="font-playfair font-bold text-2xl text-stone-900">{amount}</p>
-                  <p className="text-xs text-stone-400 mb-3">credits</p>
-                  <p className="text-sm font-bold text-green-600 mb-3">{price}</p>
-                  <Button
-                    size="sm"
-                    fullWidth
-                    variant={popular ? "primary" : "outline"}
-                    loading={loading}
-                    onClick={() => handleBuyCredits(amount)}
-                  >
-                    Buy
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-center text-stone-300">
-              Payments processed securely via Stripe
-            </p>
           </div>
         )}
 

@@ -10,19 +10,18 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function NotificationsPage() {
-  const { token, setNotificationCount, notificationCount } = useAppStore();
+  const { user, setNotificationCount, notificationCount } = useAppStore();
   const queryClient = useQueryClient();
   const router = useRouter();
 
   const { data, isLoading } = useQuery({
     queryKey: ["notifications"],
     queryFn: async () => {
-      const res = await fetch("/api/users/notifications", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch("/api/users/notifications", { credentials: "same-origin" });
       return res.json();
     },
-    enabled: !!token,
+    enabled: !!user,
   });
 
   // Update notification count in store when data is fetched
@@ -35,7 +34,7 @@ export default function NotificationsPage() {
   const markAllRead = async () => {
     await fetch("/api/users/notifications", {
       method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "same-origin",
     });
     setNotificationCount(0);
     queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -43,11 +42,12 @@ export default function NotificationsPage() {
   };
 
   const handleNotificationClick = async (notif: any) => {
-    // Mark as read
+    // Mark as read — PATCH /api/users/notifications/[id] now exists
+    // (the old code called this path and always got a 404).
     if (!notif.read) {
       await fetch(`/api/users/notifications/${notif.id}`, {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "same-origin",
       });
       setNotificationCount(Math.max(0, notificationCount - 1));
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -112,7 +112,7 @@ export default function NotificationsPage() {
                    notif.type === "SWAP_RATED" ? "⭐" :
                    notif.type === "PICKUP_CONFIRMED" ? "🎉" :
                    notif.type === "CREDITS_PURCHASED" ? "💰" :
-                   notif.type === "CREDITS_DONATED" ? "💚" : "�"}
+                   notif.type === "CREDITS_DONATED" ? "💚" : "🔔"}
                 </span>
                 <div className="flex-1">
                   <p className="font-bold text-stone-800 text-sm">{notif.title}</p>

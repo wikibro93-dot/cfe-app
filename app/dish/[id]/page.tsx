@@ -25,7 +25,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
 export default function DishDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
 
   const [swapType, setSwapType] = useState<"CREDITS" | "DIRECT" | "FREE">("CREDITS");
   const [message, setMessage] = useState("");
@@ -35,21 +35,21 @@ export default function DishDetailPage() {
   const { data: dish, isLoading } = useQuery({
     queryKey: ["dish", id],
     queryFn: async () => {
-      const res = await fetch(`/api/dishes/${id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/dishes/${id}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Dish not found");
       return res.json();
     },
   });
 
   const handleRequestSwap = async () => {
-    if (!token) { router.push("/login"); return; }
+    if (!user) { router.push("/login"); return; }
     setRequesting(true);
     try {
       const res = await fetch("/api/swaps", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ dishId: id, type: swapType, message }),
       });
       const data = await res.json();
@@ -213,7 +213,7 @@ export default function DishDetailPage() {
             ) : (
               <div className="bg-white rounded-2xl p-5 border border-stone-100 space-y-4">
                 <h3 className="font-bold text-stone-800">Request Swap</h3>
-                
+
                 {/* Swap type */}
                 <div className="flex gap-2">
                   {[
@@ -273,4 +273,3 @@ export default function DishDetailPage() {
     </div>
   );
 }
-// Map import added at runtime

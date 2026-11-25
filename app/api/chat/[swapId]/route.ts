@@ -8,8 +8,11 @@ import {
   serverError,
   badRequest,
 } from "@/lib/middleware";
-import { emitChatMessage } from "@/lib/socket";
 import { rateLimit } from "@/lib/ratelimit";
+
+// NOTE: chat is REST polling, not Socket.IO. Live push was removed (see
+// lib/socket.ts) because Vercel serverless cannot run a Socket.IO server.
+// The client (ChatPanel) polls this endpoint every few seconds.
 
 // GET  /api/chat/[swapId]  — load chat history
 export async function GET(
@@ -27,16 +30,14 @@ export async function GET(
     if (!swap) return badRequest("Swap not found");
     if (swap.buyerId !== user.id && swap.cookId !== user.id) return forbidden();
 
-    // Messages stored in a JSON column on Notification for simplicity
-    // In production you'd add a ChatMessage model — using notifications table here
-    const messages = await (prisma as any).chatMessage?.findMany({
+    const messages = await prisma.chatMessage.findMany({
       where: { swapId },
       orderBy: { createdAt: "asc" },
       take: 100,
       include: {
         sender: { select: { id: true, name: true, avatar: true } },
       },
-    }) ?? [];
+    });
 
     return success(messages);
   } catch {
@@ -51,7 +52,7 @@ export async function POST(
 ) {
   try {
     // Rate limit chat: 30 messages per minute
-    const rl = rateLimit(req, "api-write");
+    const rl = await rateLimit(req, "api-write");
     if (!rl.success) return rl.response!;
 
     const user = await getAuthUser(req);
@@ -66,57 +67,29 @@ export async function POST(
     if (!swap) return badRequest("Swap not found");
     if (swap.buyerId !== user.id && swap.cookId !== user.id) return forbidden();
 
-    // Try to use ChatMessage model if it exists, else fall back to notification log
-    let message: any;
-    try {
-      message = await (prisma as any).chatMessage.create({
-        data: {
-          swapId,
-          senderId: user.id,
-          text: text.trim(),
-        },
-        include: {
-          sender: { select: { id: true, name: true, avatar: true } },
-        },
-      });
-    } catch {
-      // ChatMessage model not yet migrated — return a synthetic message
-      message = {
-        id: `tmp-${Date.now()}`,
+    const message = await prisma.chatMessage.create({
+      data: {
         swapId,
         senderId: user.id,
-        sender: { id: user.id, name: user.name, avatar: user.avatar },
         text: text.trim(),
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    // Emit via WebSocket to both parties
-    const wsMsg = {
-      id: message.id,
-      swapId,
-      senderId: user.id,
-      senderName: user.name,
-      senderAvatar: user.avatar,
-      text: text.trim(),
-      createdAt: message.createdAt,
-    };
-
-    emitChatMessage(swapId, wsMsg);
-
-    // Notify the other party
-    const recipientId = swap.buyerId === user.id ? swap.cookId : swap.buyerId;
-    const { emitToUser } = await import("@/lib/socket");
-    emitToUser(recipientId, "notification:new", {
-      id: `chat-${Date.now()}`,
-      type: "CHAT_MESSAGE",
-      title: `💬 ${user.name}`,
-      body: text.trim().slice(0, 80),
-      data: { swapId },
-      createdAt: new Date().toISOString(),
+      },
+      include: {
+        sender: { select: { id: true, name: true, avatar: true } },
+      },
     });
 
-    return success(wsMsg, 201);
+    return success(
+      {
+        id: message.id,
+        swapId,
+        senderId: user.id,
+        senderName: user.name,
+        senderAvatar: user.avatar,
+        text: text.trim(),
+        createdAt: message.createdAt,
+      },
+      201
+    );
   } catch {
     return serverError();
   }

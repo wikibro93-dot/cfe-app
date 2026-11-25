@@ -7,7 +7,6 @@ import { useTheme } from "next-themes";
 import dynamic from "next/dynamic";
 import { useRouter, useParams } from "next/navigation";
 import toast from "react-hot-toast";
-import { useSocket, BuyerLocationUpdate } from "@/hooks/useSocket";
 
 // Dynamically import Leaflet map to avoid SSR issues
 const TrackMap = dynamic(() => import("@/app/swaps/[id]/track/TrackMap"), {
@@ -23,12 +22,11 @@ const TrackMap = dynamic(() => import("@/app/swaps/[id]/track/TrackMap"), {
 });
 
 export default function TrackBuyerPage() {
-  const { token, user } = useAppStore();
+  const { user } = useAppStore();
   const { theme } = useTheme();
   const router = useRouter();
   const params = useParams();
   const swapId = params.id as string;
-  const { subscribeToLocation } = useSocket();
 
   const [buyerLocation, setBuyerLocation] = useState<[number, number] | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string>("");
@@ -40,20 +38,19 @@ export default function TrackBuyerPage() {
   const { data: swapData, isLoading } = useQuery({
     queryKey: ["swap", swapId],
     queryFn: async () => {
-      const res = await fetch(`/api/swaps/${swapId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Auth is the httpOnly cookie — no token header is sent.
+      const res = await fetch(`/api/swaps/${swapId}`, { credentials: "same-origin" });
       if (!res.ok) throw new Error("Failed to load swap");
       return res.json();
     },
-    enabled: !!token && !!swapId,
+    enabled: !!user && !!swapId,
   });
 
   const swap = swapData;
 
   // Calculate distance using Haversine formula
   const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3; // Earth radius in meters
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
     const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -68,7 +65,7 @@ export default function TrackBuyerPage() {
     return R * c; // Distance in meters
   };
 
-  // Get cook's location
+  // Get cook location
   useEffect(() => {
     if (!swap || swap.cookId !== user?.id) return;
 
@@ -102,31 +99,45 @@ export default function TrackBuyerPage() {
     };
   }, [swap, user?.id, buyerLocation]);
 
-  // Subscribe to buyer location updates
+  // Poll the buyer latest location (REST — Socket.IO live push was removed;
+  // the buyer POSTs to /api/swaps/[id]/location every 4s and the cook polls
+  // GET on the same route). Matches the buyer broadcast interval.
   useEffect(() => {
     if (!swap || swap.cookId !== user?.id) return;
 
-    const unsubscribe = subscribeToLocation((update: BuyerLocationUpdate) => {
-      // Only process updates for this swap
-      if (update.swapId !== swapId) return;
+    let cancelled = false;
 
-      const newLocation: [number, number] = [update.location.lat, update.location.lng];
-      setBuyerLocation(newLocation);
-      setLastUpdate(update.timestamp);
+    const fetchLocation = async () => {
+      try {
+        const res = await fetch(`/api/swaps/${swapId}/location`, { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data?.location) return;
 
-      // Calculate distance from cook to buyer
-      if (cookLocation) {
-        const dist = calculateDistance(cookLocation[0], cookLocation[1], newLocation[0], newLocation[1]);
-        setDistance(dist);
-        const estimatedMinutes = (dist / 1000) / 15 * 60;
-        setEta(estimatedMinutes);
+        const newLocation: [number, number] = [data.location.lat, data.location.lng];
+        setBuyerLocation(newLocation);
+        setLastUpdate(data.timestamp || new Date().toISOString());
+
+        // Calculate distance from cook to buyer
+        if (cookLocation) {
+          const dist = calculateDistance(cookLocation[0], cookLocation[1], newLocation[0], newLocation[1]);
+          setDistance(dist);
+          const estimatedMinutes = (dist / 1000) / 15 * 60;
+          setEta(estimatedMinutes);
+        }
+      } catch {
+        // Polling failure is non-fatal; the next tick retries.
       }
-    });
+    };
+
+    fetchLocation();
+    const interval = setInterval(fetchLocation, 4000);
 
     return () => {
-      unsubscribe();
+      cancelled = true;
+      clearInterval(interval);
     };
-  }, [swap, swapId, user?.id, subscribeToLocation, cookLocation]);
+  }, [swap, swapId, user?.id, cookLocation]);
 
   // Handle call buyer
   const handleCall = () => {
@@ -149,8 +160,8 @@ export default function TrackBuyerPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "same-origin",
         body: JSON.stringify({ action: "pickup" }),
       });
 
@@ -198,7 +209,7 @@ export default function TrackBuyerPage() {
         <div className="text-center px-4">
           <div className="text-5xl mb-4">🔒</div>
           <h3 className="font-bold text-stone-900 dark:text-stone-100 mb-2">Access Denied</h3>
-          <p className="text-sm text-stone-600 dark:text-stone-400 mb-4">Only the cook can track the buyer's location.</p>
+          <p className="text-sm text-stone-600 dark:text-stone-400 mb-4">Only the cook can track the buyer&apos;s location.</p>
           <button
             onClick={() => router.push("/swaps")}
             className="px-4 py-2 bg-green-600 text-white rounded-lg"
@@ -228,7 +239,7 @@ export default function TrackBuyerPage() {
             <div className="text-center">
               <div className="animate-pulse text-5xl mb-4">📍</div>
               <p className="text-stone-600 dark:text-stone-400">
-                {!cookLocation ? "Getting your location..." : "Waiting for buyer's location..."}
+                {!cookLocation ? "Getting your location..." : "Waiting for buyer&apos;s location..."}
               </p>
             </div>
           </div>

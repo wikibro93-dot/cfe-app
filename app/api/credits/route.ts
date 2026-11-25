@@ -1,6 +1,8 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getAuthUser, unauthorized, success, serverError, badRequest } from "@/lib/middleware";
+import { rateLimit } from "@/lib/ratelimit";
 
 export async function GET(req: NextRequest) {
   try {
@@ -8,7 +10,7 @@ export async function GET(req: NextRequest) {
     if (!user) return unauthorized();
 
     const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get("page") || "1");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1") || 1);
     const limit = 20;
     const skip = (page - 1) * limit;
 
@@ -35,97 +37,79 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const rl = await rateLimit(req, "api-write");
+    if (!rl.success) return rl.response!;
+
     const user = await getAuthUser(req);
     if (!user) return unauthorized();
 
-    const { type, amount, paymentIntentId } = await req.json();
-
-    if (!type || !amount || amount <= 0) return badRequest("Invalid request");
+    const { type, amount } = await req.json();
 
     if (type === "PURCHASE") {
-      // In production, verify paymentIntentId with Stripe here
-      // For now, accept mock payments in development
-      if (process.env.NODE_ENV === "production" && !paymentIntentId) {
-        return badRequest("Payment verification required");
-      }
-
-      const creditsToAdd = parseFloat(amount);
-
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: user.id },
-          data: { credits: { increment: creditsToAdd } },
-        }),
-        prisma.creditTransaction.create({
-          data: {
-            userId: user.id,
-            amount: creditsToAdd,
-            type: "PURCHASED",
-            description: `Purchased ${creditsToAdd} credits`,
-            balanceBefore: user.credits,
-            balanceAfter: user.credits + creditsToAdd,
-          },
-        }),
-      ]);
-
-      const updated = await prisma.user.findUnique({ where: { id: user.id } });
-
-      // Notify user about credit purchase
-      await prisma.notification.create({
-        data: {
-          userId: user.id,
-          type: "CREDITS_PURCHASED",
-          title: "Credits Added! 💰",
-          body: `You've successfully purchased ${creditsToAdd} credits. Your new balance is ${updated?.credits} credits.`,
+      // DISABLED: there is no Stripe integration in this app, so a credit
+      // purchase can never be verified. The old code minted credits from a
+      // client-supplied amount. Purchases stay disabled (503) until Stripe
+      // PaymentIntents are integrated with server-side verification.
+      return NextResponse.json(
+        {
+          message:
+            "Credit purchase is not available yet. Payments are disabled until Stripe is integrated and verified server-side.",
         },
-      });
-
-      return success({
-        message: `Successfully purchased ${creditsToAdd} credits`,
-        newBalance: updated?.credits,
-      });
+        { status: 503 }
+      );
     }
 
     if (type === "DONATE") {
-      const creditsToSpend = parseFloat(amount);
-      if (user.credits < creditsToSpend) return badRequest("Insufficient credits");
+      const creditsToSpend =
+        typeof amount === "number" ? amount : parseFloat(amount);
+      if (!Number.isFinite(creditsToSpend) || creditsToSpend <= 0) {
+        return badRequest("Invalid donation amount");
+      }
 
-      await prisma.$transaction([
-        prisma.user.update({
+      // Atomic donation: re-check the balance inside the transaction and
+      // only decrement when the balance is still sufficient. The conditional
+      // updateMany is the guard — if it touches 0 rows, a concurrent
+      // request already spent the balance and the donation is rejected.
+      const fresh = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+        const current = await tx.user.findUnique({
           where: { id: user.id },
+          select: { credits: true, badges: true },
+        });
+        if (!current || current.credits < creditsToSpend) return null;
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: creditsToSpend } },
           data: { credits: { decrement: creditsToSpend } },
-        }),
-        prisma.creditTransaction.create({
+        });
+        if (updated.count !== 1) return null;
+        await tx.creditTransaction.create({
           data: {
             userId: user.id,
             amount: -creditsToSpend,
             type: "DONATED",
             description: `Donated ${creditsToSpend} credits to platform`,
-            balanceBefore: user.credits,
-            balanceAfter: user.credits - creditsToSpend,
+            balanceBefore: current.credits,
+            balanceAfter: current.credits - creditsToSpend,
           },
-        }),
-      ]);
+        });
+        return current;
+      });
 
-      // Award donor badge if donated enough
-      if (user.credits >= 50) {
+      if (!fresh) return badRequest("Insufficient credits");
+
+      // Award donor badge if the pre-donation balance was 50+.
+      if (fresh.credits >= 50 && !fresh.badges.includes("top_donor")) {
         await prisma.user.update({
           where: { id: user.id },
-          data: {
-            badges: {
-              push: "top_donor",
-            },
-          },
+          data: { badges: { push: "top_donor" } },
         });
       }
 
-      // Notify user about donation
       await prisma.notification.create({
         data: {
           userId: user.id,
           type: "CREDITS_DONATED",
           title: "Thank You! 💚",
-          body: `You've donated ${creditsToSpend} credits to the platform. Your generosity helps keep CFE running!`,
+          body: `You have donated ${creditsToSpend} credits to the platform. Your generosity helps keep CFE running!`,
         },
       });
 

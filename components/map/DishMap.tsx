@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { MapPin, Navigation } from "lucide-react";
 import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { fixLeafletIcons } from "./leafletSetup";
 
 // Dynamic import to avoid SSR issues with Leaflet
 let leafletLoaded = false;
@@ -115,14 +117,10 @@ export function DishMap({
   useEffect(() => {
     if (!mapRef.current || typeof window === "undefined") return;
 
-    // Fix leaflet default icon paths in Next.js
+    // Fix leaflet default icon paths in Next.js (local files — cdnjs is
+    // blocked by the app's Content-Security-Policy).
     if (!leafletLoaded) {
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
-        iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-        shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
-      });
+      fixLeafletIcons();
       leafletLoaded = true;
     }
 
@@ -361,13 +359,7 @@ export function DishMap({
   return (
     <div className={`relative overflow-hidden rounded-2xl border border-stone-100 ${className}`} style={{ height }}>
       <div ref={mapRef} style={{ height: "100%", width: "100%" }} />
-      
-      {/* Leaflet CSS */}
-      <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
-      />
-      
+
       {/* Tile layer switcher */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-1000">
         <div className="bg-white rounded-lg shadow-lg border border-stone-200 p-1">
@@ -461,6 +453,9 @@ export function LocationPicker({
 
     if (mapInstanceRef.current) return;
 
+    // Default markers need the same local icon fix (see leafletSetup).
+    fixLeafletIcons();
+
     const initialCenter = value ?? { lat: 33.6938, lng: 73.0652 };
 
     const map = L.map(mapRef.current!, {
@@ -515,7 +510,6 @@ export function LocationPicker({
         style={{ height, width: "100%" }}
         className="rounded-xl overflow-hidden border border-stone-200"
       />
-      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     </div>
   );
 }

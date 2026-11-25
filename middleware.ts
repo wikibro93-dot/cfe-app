@@ -21,7 +21,7 @@ const SECURITY_HEADERS: Record<string, string> = {
     "script-src 'self' 'unsafe-eval' 'unsafe-inline'", // needed for Next.js
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https://res.cloudinary.com https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com",
+    "img-src 'self' data: blob: https://res.cloudinary.com https://nominatim.openstreetmap.org https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://*.basemaps.cartocdn.com",
     "connect-src 'self' wss: https://api.cloudinary.com https://exchangeratesapi.io",
     "frame-ancestors 'none'",
   ].join("; "),
